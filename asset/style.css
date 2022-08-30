@@ -1,0 +1,78 @@
+#heatvideo {
+    height: 550px;
+    border-radius: 10px;
+    box-shadow: 5px 5px black;
+}
+
+#video {
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+}
+
+#quiz {
+    background-color: #993C6C;
+    width: inherit;
+    height: 175px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+}
+
+#question {
+    background-color: #4C1632;
+    border-radius: 10px;
+    text-align: center;
+    color: white;
+}
+
+#answer {
+    border-radius: 10px;
+    display: flex;
+    justify-content: center;
+}
+
+#answer button {
+    margin: 10px 10px 10px 10px;
+    width: 450px;
+    height: 75px;
+    background-color: #FFF9CA;
+    border-radius: 50px;
+    text-align: center;
+}
+
+#answer button:hover {
+    background-color: black;
+    color: white;
+    cursor: pointer;
+}
+
+#answer h2 {
+    font-size: 26px;
+}
+
+body {
+    background-color: #A37BB3;
+    height: 735px;
+}
+
+#answer .correct {
+    background-color: #C3FF99 !important;
+}
+
+#answer .wrong {
+    background-color: #FF8C97;
+}
+
+button[disabled=disabled],
+button:disabled:hover {
+    color: black !important;
+}
+
+button[disabled=disabled],
+button:disabled {
+    background-color: #FF8C97 !important;
+    color: black;
+    border-color: black;
+}

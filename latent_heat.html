@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="./asset/style.css">
+</head>
+
+<body>
+    <div id="quiz">
+        <div id="question">
+        </div>
+        <div id="answer">
+        </div>
+    </div>
+    <div id="video">
+        <video src="./asset/heating curve.mp4" id="heatvideo"></video>
+    </div>
+    <audio src="./asset/correct audio.mp3" id="correct"></audio>
+    <audio src="./asset/wrong audio.mp3" id="wrong"></audio>
+    <audio src="./asset/clappingaudio.mp3" id="clapping"></audio>
+    <!-- <button onclick="skip()" disabled>skip</button> -->
+    <script>
+        question = [
+            "1)	What is the melting point of ice?",
+            "2)	What is the boiling point of water?",
+            "3) What is the possible temperature of water at point A?",
+            "4)	What is the state of water at point A?",
+            "5) At point A, when heat is absorbed, temperature will _________.",
+            "6) When temperature increases, kinetic energy of molecules will _________.",
+            "7)	What is the state of water at line AB?",
+            "8)	At melting point (point B), when heat is absorbed, temperature will _________.",
+            "9)	When temperature remains constant, kinetic energy of molecules will _________.",
+            "10) What is the state of water at point C?",
+            "11) What is the state of water at line BC? ",
+            "12) What is the process of line BC? ",
+            "13) At point C, when heat is absorbed, temperature will _________.",
+            "14) When temperature increases, kinetic energy of molecules will _________.",
+            "15) What is the state of water at line CD?",
+            "16) At boiling point (point D), when heat is absorbed, temperature will _________.",
+            "17) When temperature remains constant, kinetic energy of molecules will _________.",
+            "18) What is the state of water at point E?",
+            "19) What is the state of water at line DE? ",
+            "20) What is the process of line DE? ",
+            "21) At point E, when heat is absorbed, temperature will _________.",
+            "22) When temperature increases, kinetic energy of molecules will _________. ",
+            "23) What is the state of water at line EF? ",
+            "24) From your observation, melting or boiling takes more time?",
+            "25) We need _________ heat energy for boiling than melting.",
+            "26) Therefore, specific latent heat of vaporisation is _________ specific latent of fusion. "];
+        answer = [
+            ["-30 °C", "0 °C", "50 °C", "1"],
+            ["0 °C", "50 °C", "100 °C", "2"],
+            ["-50 °C", "20 °C", "120 °C", "0"],
+            ["Solid", "Liquid", "Gas", "0"],
+            ["Decrease", "Increase", "Remain constant", "1"],
+            ["Decrease", "Increase", "Remain constant", "1"],
+            ["Solid", "Liquid", "Gas", "0"],
+            ["Decrease", "Increase", "Remain constant", "2"],
+            ["Decrease", "Increase", "Remain constant", "2"],
+            ["Solid", "Liquid", "Gas", "1"],
+            ["Solid", "Solid and liquid", "Liquid", "1"],
+            ["Melting", "Freezing", "Boiling", "0"],
+            ["Decrease", "Increase", "Remain constant", "1"],
+            ["Decrease", "Increase", "Remain constant", "1"],
+            ["Solid", "Liquid", "Gas", "1"],
+            ["Decrease", "Increase", "Remain constant", "2"],
+            ["Decrease", "Increase", "Remain constant", "2"],
+            ["Solid", "Liquid", "Gas", "2"],
+            ["Liquid", "Liquid and gas", "Gas", "1"],
+            ["Melting", "Boiling", "Condensation", "1"],
+            ["Decrease", "Increase", "Remain constant", "1"],
+            ["Decrease", "Increase", "Remain constant", "1"],
+            ["Solid", "Liquid", "Gas", "2"],
+            ["Melting", "Boiling", "Both take same time", "1"],
+            ["more", "less", "same", "0"],
+            ["greater than", "smaller than", "the same as", "0"],];
+        let lesson = 0;
+        function changeQuestion() {
+            document.getElementById('question').innerHTML = `<h1>${question[lesson]}</h1>`;
+            document.getElementById('answer').innerHTML = ``;
+            for (let i = 0; i < 3; i++) {
+                if (i == answer[lesson][3]) {
+                    document.getElementById('answer').innerHTML += ` <div ><button id=${i} onclick="checkAnswer(${i},true)">
+                <h2>${answer[lesson][i]}
+                </h2>
+                </button>
+            </div>`  ;
+                }
+                else {
+                    document.getElementById('answer').innerHTML += ` <div><button id=${i} onclick="checkAnswer(${i},false)">
+                <h2>${answer[lesson][i]}
+                </h2>
+                </button>
+            </div>`  ;
+                }
+            }
+        }
+        heatvideo = document.getElementById('heatvideo')
+        videotime = [0, 2.5, 5, 7.5, 10, 14.5, 17, 19.5, 24, 26.5, 29, 31.5, 34, 38.5, 41, 43.5, 48, 50.5, 53, 55.5, 58, 62.5, 65, 67.5, 70, 72, 75];
+        function checkAnswer(selection, correct) {
+            if (correct) {
+                document.getElementById('correct').play();
+                document.getElementById(selection).classList.add('correct');
+                heatvideo.currentTime = videotime[lesson];
+                heatvideo.play();
+                heatvideo.addEventListener('timeupdate', stopVideo);
+                if (lesson >= 25) {
+                    document.getElementById('clapping').play();
+                }
+                document.getElementsByTagName('button')[0].setAttribute('disabled', true);
+                document.getElementsByTagName('button')[1].setAttribute('disabled', true);
+                document.getElementsByTagName('button')[2].setAttribute('disabled', true);
+            }
+            else {
+                document.getElementById('wrong').play();
+                document.getElementById(selection).classList.add('wrong')
+            }
+
+        }
+
+        function stopVideo() {
+            if (heatvideo.currentTime >= videotime[lesson + 1] - 0.5) {
+                heatvideo.pause();
+                lesson++;
+                changeQuestion();
+
+            }
+
+        }
+
+        function skip() {
+            lesson++;
+            changeQuestion();
+            heatvideo.currentTime = videotime[lesson];
+
+        }
+
+        changeQuestion();
+
+
+    </script>
+</body>
+
+</html>
