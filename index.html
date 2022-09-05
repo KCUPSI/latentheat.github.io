@@ -7,6 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Heating curve of ice </title>
     <link rel="stylesheet" href="./asset/style.css">
+
 </head>
 
 <body>
@@ -22,7 +23,8 @@
     <audio src="./asset/correct audio.mp3" id="correct"></audio>
     <audio src="./asset/wrong audio.mp3" id="wrong"></audio>
     <audio src="./asset/clappingaudio.mp3" id="clapping"></audio>
-    <!-- <button onclick="skip()">skip</button> -->
+    <button style="display:none" onclick="skip()">skip</button>
+
     <script>
         question = [
             "1)	What is the melting point of ice?",
@@ -47,10 +49,7 @@
             "20) What is the process of line DE? ",
             "21) When heat is absorbed by steam at point E, temperature will _________.",
             "22) When temperature increases, kinetic energy of molecules will _________. ",
-            "23) What is the state of water at line EF? ",
-            "24) From your observation, melting or boiling takes more time?",
-            "25) We need _________ heat energy for boiling than melting.",
-            "26) Therefore, specific latent heat of vaporisation is _________ specific latent of fusion. "];
+            "23) What is the state of water at line EF? "];
         answer = [
             ["-30 °C", "0 °C", "50 °C", "1"],
             ["0 °C", "50 °C", "100 °C", "2"],
@@ -74,11 +73,10 @@
             ["Melting", "Boiling", "Condensation", "1"],
             ["Decrease", "Increase", "Remain constant", "1"],
             ["Decrease", "Increase", "Remain constant", "1"],
-            ["Solid", "Liquid", "Gas", "2"],
-            ["Melting", "Boiling", "Both take same time", "1"],
-            ["more", "less", "same", "0"],
-            ["greater than", "smaller than", "the same as", "0"],];
+            ["Solid", "Liquid", "Gas", "2"]];
         let lesson = 0;
+        let checked = false;
+        let correctnumber = 0;
         function changeQuestion() {
             document.getElementById('question').innerHTML = `<h1>${question[lesson]}</h1>`;
             document.getElementById('answer').innerHTML = ``;
@@ -103,19 +101,47 @@
         videotime = [0, 2.5, 5, 7.5, 10, 14.5, 17, 19.5, 24, 26.5, 29, 31.5, 34, 38.5, 41, 43.5, 48, 50.5, 53, 55.5, 58, 62.5, 65, 67.5, 70, 72, 75];
         function checkAnswer(selection, correct) {
             if (correct) {
+                correctnumber += 1;
+                checked = false;
                 document.getElementById('correct').play();
                 document.getElementById(selection).classList.add('correct');
                 heatvideo.currentTime = videotime[lesson];
                 heatvideo.play();
                 heatvideo.addEventListener('timeupdate', stopVideo);
-                if (lesson >= 25) {
+                if (lesson >= 22) {
                     document.getElementById('clapping').play();
+                    document.getElementById('quiz').classList.add('quizadd')
+
+                    document.getElementById('quiz').innerHTML =
+                        `      <img id="image" src="./asset/picture5.svg">
+                        <div id="correctbox">${correctnumber}</div>
+                        <div id="wrongbox">${23 - correctnumber}</div>`
+
+                    if (correctnumber < 10) {
+                        document.getElementById('correctbox').setAttribute('style', 'left:131px;')
+                    }
+                    if (23 - correctnumber >= 10) {
+                        document.getElementById('wrongbox').setAttribute('style', 'left:438px;')
+                    }
+                    // document.getElementById('quiz').innerHTML =
+                    //     `<div id="done">
+                    //     <div id="result">
+                    //         Result for 4S4
+                    //         </div>
+                    //         <div id="correctnumber">
+                    //     ${correctnumber}/23
+                    //     </div>
+                    //     </div>`
                 }
                 document.getElementsByTagName('button')[0].setAttribute('disabled', true);
                 document.getElementsByTagName('button')[1].setAttribute('disabled', true);
                 document.getElementsByTagName('button')[2].setAttribute('disabled', true);
             }
             else {
+                if (!checked) {
+                    correctnumber -= 1;
+                    checked = true;
+                }
                 document.getElementById('wrong').play();
                 document.getElementById(selection).classList.add('wrong')
             }
@@ -133,6 +159,7 @@
         }
 
         function skip() {
+            console.log(correct)
             lesson++;
             changeQuestion();
             heatvideo.currentTime = videotime[lesson];
