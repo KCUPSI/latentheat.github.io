@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>4S4 Simulation</title>
+</head>
+<body>
+    <div id="glowscript" class="glowscript">
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <link type="text/css" href="https://www.glowscript.org/css/redmond/2.1/jquery-ui.custom.css" rel="stylesheet" />
+        <link type="text/css" href="https://www.glowscript.org/css/ide.css" rel="stylesheet" />
+        <script type="text/javascript" src="https://www.glowscript.org/lib/jquery/2.1/jquery.min.js"></script>
+        <script type="text/javascript" src="https://www.glowscript.org/lib/jquery/2.1/jquery-ui.custom.min.js"></script>
+        <script type="text/javascript" src="https://www.glowscript.org/package/glow.3.2.min.js"></script>
+        <script type="text/javascript" src="https://www.glowscript.org/package/RSrun.3.2.min.js"></script>
+        <script type="text/javascript"><!--//--><![CDATA[//><!--
+        
+        // START JAVASCRIPT
+        ;(function() {;
+        var ρσ_modules = {};
+        ρσ_modules.pythonize = {};
+        
+        (function(){
+            function strings() {
+                var string_funcs, exclude, name;
+                string_funcs = set("capitalize strip lstrip rstrip islower isupper isspace lower upper swapcase center count endswith startswith find rfind index rindex format join ljust rjust partition rpartition replace split rsplit splitlines zfill".split(" "));
+                if (!arguments.length) {
+                    exclude = (function(){
+                        var s = ρσ_set();
+                        s.jsset.add("split");
+                        s.jsset.add("replace");
+                        return s;
+                    })();
+                } else if (arguments[0]) {
+                    exclude = Array.prototype.slice.call(arguments);
+                } else {
+                    exclude = null;
+                }
+                if (exclude) {
+                    string_funcs = string_funcs.difference(set(exclude));
+                }
+                var ρσ_Iter0 = string_funcs;
+                ρσ_Iter0 = ((typeof ρσ_Iter0[Symbol.iterator] === "function") ? (ρσ_Iter0 instanceof Map ? ρσ_Iter0.keys() : ρσ_Iter0) : Object.keys(ρσ_Iter0));
+                for (var ρσ_Index0 of ρσ_Iter0) {
+                    name = ρσ_Index0;
+                    (ρσ_expr_temp = String.prototype)[(typeof name === "number" && name < 0) ? ρσ_expr_temp.length + name : name] = (ρσ_expr_temp = ρσ_str.prototype)[(typeof name === "number" && name < 0) ? ρσ_expr_temp.length + name : name];
+                }
+            };
+            if (!strings.__module__) Object.defineProperties(strings, {
+                __module__ : {value: "pythonize"}
+            });
+        
+            ρσ_modules.pythonize.strings = strings;
+        })();
+        async function __main__() {
+        "use strict";
+            var display = canvas;
+            var scene = canvas();
+        
+            var version, print, arange, __name__, type, ρσ_ls, win, Natoms, L, gray, increment, increase, mass, originmass, Ratom, k, T, dt, animation, d, r, blue, boxbottom, boxtop, vert1, vert2, vert3, vert4, Atoms, p, apos, pavg, x, y, z, theta, phi, px, py, pz, i, deltav, nhisto, hitlist, j, ptot, posi, posj, vi, vj, vrel, a, rrel, dx, dy, alpha, deltat, mtot, pcmi, pcmj, ij, loc;
+            version = ρσ_list_decorate([ "3.2", "glowscript" ]);
+            Array.prototype['+'] = function(r) {return this.concat(r)}
+            Array.prototype['*'] = function(r) {return __array_times_number(this, r)}
+            window.__GSlang = "vpython";
+            print = GSprint;
+            arange = range;
+            __name__ = "__main__";
+            type = pytype;
+            var strings = ρσ_modules.pythonize.strings;
+        
+            strings();
+            "6";
+            win = 700;
+            "8";
+            Natoms = 16;
+            "11";
+            L = 1;
+            "12";
+            gray = vec(235, 29, 54)["/"](255);
+            "14";
+            increment = vec(235, 29, 54)["/"](255)["-"](1["*"](vec(194, 149, 196))["/"](255));
+            "15";
+            increase = 360;
+            "17";
+            mass = .004["/"](6e23);
+            "18";
+            originmass = mass;
+            "19";
+            Ratom = .1;
+            "20";
+            k = 1.4e-23;
+            "21";
+            T = 1e3;
+            "22";
+            dt = 3e-5;
+            "24";
+            animation = ρσ_interpolate_kwargs.call(this, canvas, [ρσ_desugar_kwargs({width: 2.17["*"](win), height: win, align: "left", background: vec(38, 38, 38)["/"](255)})]);
+            "35";
+            d = 1["*"](L["/"](2)["+"](Ratom));
+            "36";
+            r = .005;
+            "37";
+            blue = vec(33, 225, 225)["/"](255);
+            "38";
+            boxbottom = ρσ_interpolate_kwargs.call(this, curve, [ρσ_desugar_kwargs({color: blue, radius: r})]);
+            "39";
+            boxbottom.append(ρσ_list_decorate([ vector(1["-u"]()["*"](d), 1["-u"]()["*"](d), 1["-u"]()["*"](d)), vector(1["-u"]()["*"](d), 1["-u"]()["*"](d), d), vector(d, 1["-u"]()["*"](d), d), vector(d, 1["-u"]()["*"](d), 1["-u"]()["*"](d)), vector(1["-u"]()["*"](d), 1["-u"]()["*"](d), 1["-u"]()["*"](d)) ]));
+            "40";
+            boxtop = ρσ_interpolate_kwargs.call(this, curve, [ρσ_desugar_kwargs({color: blue, radius: r})]);
+            "41";
+            boxtop.append(ρσ_list_decorate([ vector(1["-u"]()["*"](d), d, 1["-u"]()["*"](d)), vector(1["-u"]()["*"](d), d, d), vector(d, d, d), vector(d, d, 1["-u"]()["*"](d)), vector(1["-u"]()["*"](d), d, 1["-u"]()["*"](d)) ]));
+            "42";
+            vert1 = ρσ_interpolate_kwargs.call(this, curve, [ρσ_desugar_kwargs({color: blue, radius: r})]);
+            "43";
+            vert2 = ρσ_interpolate_kwargs.call(this, curve, [ρσ_desugar_kwargs({color: blue, radius: r})]);
+            "44";
+            vert3 = ρσ_interpolate_kwargs.call(this, curve, [ρσ_desugar_kwargs({color: blue, radius: r})]);
+            "45";
+            vert4 = ρσ_interpolate_kwargs.call(this, curve, [ρσ_desugar_kwargs({color: blue, radius: r})]);
+            "46";
+            vert1.append(ρσ_list_decorate([ vector(1["-u"]()["*"](d), 1["-u"]()["*"](d), 1["-u"]()["*"](d)), vector(1["-u"]()["*"](d), d, 1["-u"]()["*"](d)) ]));
+            "47";
+            vert2.append(ρσ_list_decorate([ vector(1["-u"]()["*"](d), 1["-u"]()["*"](d), d), vector(1["-u"]()["*"](d), d, d) ]));
+            "48";
+            vert3.append(ρσ_list_decorate([ vector(d, 1["-u"]()["*"](d), d), vector(d, d, d) ]));
+            "49";
+            vert4.append(ρσ_list_decorate([ vector(d, 1["-u"]()["*"](d), 1["-u"]()["*"](d)), vector(d, d, 1["-u"]()["*"](d)) ]));
+            "50";
+            animation.camera.pos = vec(1.6, .8, 1.4);
+            "51";
+            animation.camera.axis = 1["-u"]()["*"](animation.camera.pos);
+            "52";
+            Atoms = ρσ_list_decorate([]);
+            "53";
+            p = ρσ_list_decorate([]);
+            "54";
+            apos = ρσ_list_decorate([]);
+            "55";
+            pavg = sqrt(2["*"](mass)["*"](1.5)["*"](k)["*"](T));
+            "57";
+            for (var ρσ_Index1 = 0; ρσ_Index1["<"](Natoms); ρσ_Index1++) {
+                i = ρσ_Index1;
+                "58";
+                x = L["*"](random())["-"](1["*"](L)["/"](2));
+                "59";
+                y = L["*"](random())["-"](1["*"](L)["/"](2));
+                "60";
+                z = L["*"](random())["-"](1["*"](L)["/"](2));
+                "61";
+                if ((i === 0 || typeof i === "object" && ρσ_equals(i, 0))) {
+                    "62";
+                    Atoms.append(ρσ_interpolate_kwargs.call(this, sphere, [ρσ_desugar_kwargs({pos: vector(x, y, z), radius: Ratom, color: gray, make_trail: false, retain: 100, trail_radius: .3["*"](Ratom)})]));
+                    "63";
+                } else {
+                    Atoms.append(ρσ_interpolate_kwargs.call(this, sphere, [ρσ_desugar_kwargs({pos: vector(x, y, z), radius: Ratom, color: gray})]));
+                }
+                "64";
+                apos.append(vec(x, y, z));
+                "65";
+                theta = pi["*"](random());
+                "66";
+                phi = 2["*"](pi)["*"](random());
+                "67";
+                px = pavg["*"](sin(theta))["*"](cos(phi));
+                "68";
+                py = pavg["*"](sin(theta))["*"](sin(phi));
+                "69";
+                pz = pavg["*"](cos(theta));
+                "70";
+                p.append(vector(px, py, pz));
+            }
+            "72";
+            deltav = 100;
+            "74";
+            async function barx(v) {
+                "75";
+                return int(v["/"](deltav));
+            };
+            if (!barx.__argnames__) Object.defineProperties(barx, {
+                __argnames__ : {value: ["v"]},
+                __module__ : {value: null}
+            });
+        
+            "96";
+            async function interchange(v1, v2) {
+                var ρσ_ls, barx1, barx2;
+                "97";
+                barx1 = (await barx(v1));
+                "98";
+                barx2 = (await barx(v2));
+                "99";
+                if ((barx1 === barx2 || typeof barx1 === "object" && ρσ_equals(barx1, barx2))) {
+                    return;
+                }
+                "100";
+                if (barx1[">="](len(histo)) || barx2[">="](len(histo))) {
+                    return;
+                }
+                "101";
+                ρσ_setitem(histo, barx1, ρσ_getitem(histo, barx1)["-"](1));
+                "102";
+                ρσ_setitem(histo, barx2, ρσ_getitem(histo, barx2)["+"](1));
+            };
+            if (!interchange.__argnames__) Object.defineProperties(interchange, {
+                __argnames__ : {value: ["v1", "v2"]},
+                __module__ : {value: null}
+            });
+        
+            "104";
+            async function checkCollisions() {
+                var ρσ_ls, hitlist, r2, ai, aj, dr, j, i;
+                "105";
+                hitlist = ρσ_list_decorate([]);
+                "106";
+                r2 = 2["*"](Ratom);
+                "107";
+                r2=r2["*"](r2);
+                "108";
+                for (var ρσ_Index2 = 0; ρσ_Index2["<"](Natoms); ρσ_Index2++) {
+                    i = ρσ_Index2;
+                    "109";
+                    ai = ρσ_getitem(apos, i);
+                    "110";
+                    for (var ρσ_Index3 = 0; ρσ_Index3["<"](i); ρσ_Index3++) {
+                        j = ρσ_Index3;
+                        "111";
+                        aj = ρσ_getitem(apos, j);
+                        "112";
+                        dr = ai["-"](1["*"](aj));
+                        "113";
+                        if (mag2(dr)["<"](r2)) {
+                            hitlist.append(ρσ_list_decorate([ i, j ]));
+                        }
+                    }
+                }
+                "114";
+                return hitlist;
+            };
+            if (!checkCollisions.__module__) Object.defineProperties(checkCollisions, {
+                __module__ : {value: null}
+            });
+        
+            "116";
+            nhisto = 0;
+            "118";
+            while (true) {
+                "119";
+                (await rate(60));
+                "127";
+                for (var ρσ_Index4 = 0; ρσ_Index4["<"](Natoms); ρσ_Index4++) {
+                    i = ρσ_Index4;
+                    "128";
+                    ρσ_getitem(Atoms, i).pos = ρσ_setitem(apos, i, ρσ_getitem(apos, i)["+"](ρσ_getitem(p, i)["/"](mass)["*"](dt)));
+                }
+                "134";
+                hitlist = (await checkCollisions());
+                "137";
+                var ρσ_Iter5 = hitlist;
+                ρσ_Iter5 = ((typeof ρσ_Iter5[Symbol.iterator] === "function") ? (ρσ_Iter5 instanceof Map ? ρσ_Iter5.keys() : ρσ_Iter5) : Object.keys(ρσ_Iter5));
+                for (var ρσ_Index5 of ρσ_Iter5) {
+                    ij = ρσ_Index5;
+                    "138";
+                    i = ρσ_getitem(ij, 0);
+                    "139";
+                    j = ρσ_getitem(ij, 1);
+                    "140";
+                    ptot = ρσ_getitem(p, i)["+"](ρσ_getitem(p, j));
+                    "141";
+                    posi = ρσ_getitem(apos, i);
+                    "142";
+                    posj = ρσ_getitem(apos, j);
+                    "143";
+                    vi = ρσ_getitem(p, i)["/"](mass);
+                    "144";
+                    vj = ρσ_getitem(p, j)["/"](mass);
+                    "145";
+                    vrel = vj["-"](1["*"](vi));
+                    "146";
+                    a = vrel.mag2;
+                    "147";
+                    if ((a === 0 || typeof a === "object" && ρσ_equals(a, 0))) {
+                        continue;
+                    }
+                    "148";
+                    rrel = posi["-"](1["*"](posj));
+                    "149";
+                    if (rrel.mag[">"](Ratom)) {
+                        continue;
+                    }
+                    "152";
+                    dx = dot(rrel, vrel.hat);
+                    "153";
+                    dy = cross(rrel, vrel.hat).mag;
+                    "156";
+                    alpha = asin(dy["/"](2["*"](Ratom)));
+                    "157";
+                    d = 2["*"](Ratom)["*"](cos(alpha))["-"](1["*"](dx));
+                    "158";
+                    deltat = d["/"](vrel.mag);
+                    "160";
+                    posi = posi["-"](1["*"](vi)["*"](deltat));
+                    "161";
+                    posj = posj["-"](1["*"](vj)["*"](deltat));
+                    "162";
+                    mtot = 2["*"](mass);
+                    "163";
+                    pcmi = ρσ_getitem(p, i)["-"](1["*"](ptot)["*"](mass)["/"](mtot));
+                    "164";
+                    pcmj = ρσ_getitem(p, j)["-"](1["*"](ptot)["*"](mass)["/"](mtot));
+                    "165";
+                    rrel = norm(rrel);
+                    "166";
+                    pcmi = pcmi["-"](1["*"](2)["*"](pcmi.dot(rrel))["*"](rrel));
+                    "167";
+                    pcmj = pcmj["-"](1["*"](2)["*"](pcmj.dot(rrel))["*"](rrel));
+                    "168";
+                    ρσ_setitem(p, i, pcmi["+"](ptot["*"](mass)["/"](mtot)));
+                    "169";
+                    ρσ_setitem(p, j, pcmj["+"](ptot["*"](mass)["/"](mtot)));
+                    "170";
+                    ρσ_setitem(apos, i, posi["+"](ρσ_getitem(p, i)["/"](mass)["*"](deltat)));
+                    "171";
+                    ρσ_setitem(apos, j, posj["+"](ρσ_getitem(p, j)["/"](mass)["*"](deltat)));
+                }
+                "176";
+                for (var ρσ_Index6 = 0; ρσ_Index6["<"](Natoms); ρσ_Index6++) {
+                    i = ρσ_Index6;
+                    "177";
+                    loc = ρσ_getitem(apos, i);
+                    "178";
+                    if (abs(loc.x)[">"](L["/"](2))) {
+                        "179";
+                        if (loc.x["<"](0)) {
+                            ρσ_getitem(p, i).x = abs(ρσ_getitem(p, i).x);
+                        } else {
+                            ρσ_getitem(p, i).x = 1["-u"]()["*"](abs(ρσ_getitem(p, i).x));
+                        }
+                        "182";
+                    }
+                    if (abs(loc.y)[">"](L["/"](2))) {
+                        "183";
+                        if (loc.y["<"](0)) {
+                            ρσ_getitem(p, i).y = abs(ρσ_getitem(p, i).y);
+                        } else {
+                            ρσ_getitem(p, i).y = 1["-u"]()["*"](abs(ρσ_getitem(p, i).y));
+                        }
+                        "186";
+                    }
+                    if (abs(loc.z)[">"](L["/"](2))) {
+                        "187";
+                        if (loc.z["<"](0)) {
+                            ρσ_getitem(p, i).z = abs(ρσ_getitem(p, i).z);
+                        } else {
+                            ρσ_getitem(p, i).z = 1["-u"]()["*"](abs(ρσ_getitem(p, i).z));
+                        }
+                    }
+                }
+            }
+        };
+        if (!__main__.__module__) Object.defineProperties(__main__, {
+            __module__ : {value: null}
+        });
+        
+        ;$(function(){ window.__context = { glowscript_container: $("#glowscript").removeAttr("id") }; __main__() })})()
+        // END JAVASCRIPT
+        
+        //--><!]]></script>
+        </div>
+</body>
+</html>
