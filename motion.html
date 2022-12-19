@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<style>
+    .glowscript {
+        display: flex;
+        justify-content: center;
+        border-radius: 20px;
+    }
+
+    .glowscript canvas {
+        border-radius: 20px;
+    }
+    .svg-container{
+        top:50px;
+        left:30px;
+    }
+    body{
+       
+    }
+</style>
+<body>
+    <div style="display:flex;justify-content: center;margin-top:30px;margin-bottom:20px;">
+        <h1 style="font-weight:800">Linear Motion Graph</h1>
+    </div>
+    <div id="glowscript" class="glowscript">
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <link type="text/css" href="https://www.glowscript.org/css/redmond/2.1/jquery-ui.custom.css" rel="stylesheet" />
+        <link type="text/css" href="https://www.glowscript.org/css/ide.css" rel="stylesheet" />
+        <script type="text/javascript" src="https://www.glowscript.org/lib/jquery/2.1/jquery.min.js"></script>
+        <script type="text/javascript" src="https://www.glowscript.org/lib/jquery/2.1/jquery-ui.custom.min.js"></script>
+        <script type="text/javascript" src="https://www.glowscript.org/package/glow.3.2.min.js"></script>
+        <script type="text/javascript" src="https://www.glowscript.org/package/RSrun.3.2.min.js"></script>
+        <script type="text/javascript">
+        ;(function() {;
+        var ρσ_modules = {};
+        var drag, drag_pos;
+        ρσ_modules.pythonize = {};
+        
+        (function(){
+            function strings() {
+                var string_funcs, exclude, name;
+                string_funcs = set("capitalize strip lstrip rstrip islower isupper isspace lower upper swapcase center count endswith startswith find rfind index rindex format join ljust rjust partition rpartition replace split rsplit splitlines zfill".split(" "));
+                if (!arguments.length) {
+                    exclude = (function(){
+                        var s = ρσ_set();
+                        s.jsset.add("split");
+                        s.jsset.add("replace");
+                        return s;
+                    })();
+                } else if (arguments[0]) {
+                    exclude = Array.prototype.slice.call(arguments);
+                } else {
+                    exclude = null;
+                }
+                if (exclude) {
+                    string_funcs = string_funcs.difference(set(exclude));
+                }
+                var ρσ_Iter0 = string_funcs;
+                ρσ_Iter0 = ((typeof ρσ_Iter0[Symbol.iterator] === "function") ? (ρσ_Iter0 instanceof Map ? ρσ_Iter0.keys() : ρσ_Iter0) : Object.keys(ρσ_Iter0));
+                for (var ρσ_Index0 of ρσ_Iter0) {
+                    name = ρσ_Index0;
+                    (ρσ_expr_temp = String.prototype)[(typeof name === "number" && name < 0) ? ρσ_expr_temp.length + name : name] = (ρσ_expr_temp = ρσ_str.prototype)[(typeof name === "number" && name < 0) ? ρσ_expr_temp.length + name : name];
+                }
+            };
+            if (!strings.__module__) Object.defineProperties(strings, {
+                __module__ : {value: "pythonize"}
+            });
+        
+            ρσ_modules.pythonize.strings = strings;
+        })();
+        async function __main__() {
+        "use strict";
+            var display = canvas;
+            var scene = canvas();
+        
+            var version, print, arange, __name__, type, ρσ_ls, r, v, a, s, t, dt, I, c1, object, floor, gd, gd1, drag, drag_pos;
+            version = ρσ_list_decorate([ "3.2", "glowscript" ]);
+            Array.prototype['+'] = function(r) {return this.concat(r)}
+            Array.prototype['*'] = function(r) {return __array_times_number(this, r)}
+            window.__GSlang = "vpython";
+            print = GSprint;
+            arange = range;
+            __name__ = "__main__";
+            type = pytype;
+            var strings = ρσ_modules.pythonize.strings;
+        
+            strings();
+            "2";
+            r = .6;
+            "3";
+            v = 0;
+            "4";
+            a = .4;
+            "5";
+            s = 0;
+            "6";
+            t = 0;
+            "7";
+            dt = .01;
+            "8";
+            I = 50;
+            "9";
+            c1 = vec(255, 24, 24)["/"](100);
+            "10";
+            c1 = vec(2.52, 2.17, 0);
+            "11";
+            object = ρσ_interpolate_kwargs.call(this, box, [ρσ_desugar_kwargs({canvas: scene, size: vec(r, r, r), make_trail: true, trail_type: "points", interval: I, trail_radius: r["/"](10), color: c1})]);
+            "12";
+            floor = ρσ_interpolate_kwargs.call(this, box, [ρσ_desugar_kwargs({canvas: scene, size: vec(10["*"](r), r["/"](2), 2["*"](r)), pos: vec(4.5["*"](r), 1["-u"]()["*"](r)["/"](2)["-"](1["*"](r)["/"](4)), 0), color: vector(2.52, 2.17, 0), color: vector(13["/"](100), 83["/"](100), 151["/"](100))})]);
+            "13";
+            scene.camera.pos = vec(6.5, .7, 2.3);
+            "14";
+            scene.camera.axis = vec(1["-u"]()["*"](5.1), 1["-u"]()["*"](1.7), 1["-u"]()["*"](4.7));
+            "15";
+            gd = ρσ_interpolate_kwargs.call(this, graph, [ρσ_desugar_kwargs({ytitle: "Displacement, s/m", xtitle: "Time, t/s", xmin: 0, ymin: 1["-u"]()["*"](.5), xmax: 6, ymax: 6, fast: false, width: 700, height: 300})]);
+            "16";
+            gd = ρσ_interpolate_kwargs.call(this, gdots, [ρσ_desugar_kwargs({color: color.red, size: 15, interval: I})]);
+            "17";
+            gd1 = ρσ_interpolate_kwargs.call(this, gcurve, [ρσ_desugar_kwargs({size: 4})]);
+            "20";
+            drag = null;
+            "21";
+            drag_pos = null;
+            "23";
+            async function grab(evt) {
+                var ρσ_ls, picked;
+                "24";
+                "25";
+                picked = scene.mouse.pick();
+                "26";
+                if (picked === object) {
+                    "27";
+                    drag = object;
+                    "28";
+                    drag_pos = scene.mouse.pos;
+                }
+            };
+            if (!grab.__argnames__) Object.defineProperties(grab, {
+                __argnames__ : {value: ["evt"]},
+                __module__ : {value: null}
+            });
+        
+            "30";
+            async function move(evt) {
+                var ρσ_ls, qp;
+                "31";
+                "32";
+                if (drag === null) {
+                    return;
+                }
+                "33";
+                qp = ρσ_interpolate_kwargs.call(scene.mouse, scene.mouse.project, [ρσ_desugar_kwargs({normal: vector(0, 0, 1), d: 0})]);
+                "34";
+                if (qp.equals(drag_pos)) {
+                    return;
+                }
+                "35";
+                object.pos = drag_pos = qp;
+            };
+            if (!move.__argnames__) Object.defineProperties(move, {
+                __argnames__ : {value: ["evt"]},
+                __module__ : {value: null}
+            });
+        
+            "38";
+            async function drop(evt) {
+                "39";
+                "40";
+                drag = null;
+                "41";
+                drag_pos = null;
+            };
+            if (!drop.__argnames__) Object.defineProperties(drop, {
+                __argnames__ : {value: ["evt"]},
+                __module__ : {value: null}
+            });
+        
+            "43";
+            scene.bind("mousedown", grab);
+            "44";
+            scene.bind("mousemove", move);
+            "45";
+            scene.bind("mouseup", drop);
+            "47";
+            while (true) {
+                "48";
+                (await rate(100));
+                "49";
+                gd.plot(t, object.pos.x);
+                "50";
+                gd1.plot(t, object.pos.x);
+                "51";
+                v=v["+"](a["*"](dt));
+                "52";
+                object.pos.x=object.pos.x["+"](v["*"](dt));
+                "53";
+                t=t["+"](dt);
+            }
+        };
+        if (!__main__.__module__) Object.defineProperties(__main__, {
+            __module__ : {value: null}
+        });
+        
+        ;$(function(){ window.__context = { glowscript_container: $("#glowscript").removeAttr("id") }; __main__() })})()
+        // END JAVASCRIPT
+        
+        //--><!]]></script>
+        </div>
+</body>
+</html>
