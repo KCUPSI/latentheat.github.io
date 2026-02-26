@@ -89,6 +89,10 @@
         return `@@MATH_BLOCK_${mathBlocks.length - 1}@@`;
       };
 
+      // 0. Handle Gemini-style ($...$) wrapped inline math — must run BEFORE step 5
+      //    e.g. ($H_2O$) → renders as inline math without the surrounding parens
+      processed = processed.replace(/\(\$([^$\n]+?)\$\)/g, (_, p1) => pushMath(p1, false));
+
       // 1. $$ ... $$
       processed = processed.replace(/\$\$([\s\S]*?)\$\$/g, (_, p1) => pushMath(p1, true));
       // 2. \[ ... \]
