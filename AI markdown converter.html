@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 转 Word 转换器 — 南华独中</title>
+
+  <!-- KaTeX -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+
+  <!-- marked -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+
+  <!-- DOMPurify -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+
+  <!-- React + ReactDOM -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel for JSX -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.10/babel.min.js"></script>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          typography: {}
+        }
+      }
+    };
+  </script>
+
+  <!-- Tailwind Typography plugin via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/typography@0.5.10/src/index.js" onerror=""></script>
+
+  <style>
+    /* Prose styles since Tailwind Typography CDN plugin may not load */
+    .prose { color: #334155; line-height: 1.75; max-width: 65ch; }
+    .prose h1,.prose h2,.prose h3,.prose h4 { color: #0f172a; font-weight: 600; margin-top: 1.5em; margin-bottom: 0.5em; }
+    .prose h1 { font-size: 2em; }
+    .prose h2 { font-size: 1.5em; }
+    .prose h3 { font-size: 1.25em; }
+    .prose p { margin-top: 1em; margin-bottom: 1em; }
+    .prose ul { list-style-type: disc; padding-left: 1.5em; margin: 1em 0; }
+    .prose ol { list-style-type: decimal; padding-left: 1.5em; margin: 1em 0; }
+    .prose li { margin: 0.3em 0; }
+    .prose code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; font-family: monospace; font-size: 0.875em; }
+    .prose pre { background: #f1f5f9; padding: 1em; border-radius: 8px; overflow-x: auto; }
+    .prose pre code { background: none; padding: 0; }
+    .prose blockquote { border-left: 4px solid #cbd5e1; padding-left: 1em; color: #64748b; margin: 1em 0; }
+    .prose table { width: 100%; border-collapse: collapse; margin: 1em 0; }
+    .prose th,.prose td { border: 1px solid #e2e8f0; padding: 8px 12px; text-align: left; }
+    .prose th { background: #f8fafc; font-weight: 600; }
+    .prose a { color: #4f46e5; text-decoration: underline; }
+    .prose strong { font-weight: 700; }
+    .prose em { font-style: italic; }
+    .prose-slate { color: #475569; }
+    .prose-slate h1,.prose-slate h2,.prose-slate h3,.prose-slate h4 { color: #1e293b; }
+    .katex-display { overflow-x: auto; padding: 4px 0; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // ─── markdown.js (ported from markdown.ts) ───────────────────────────────
+    function processMarkdown(text, forWord = false) {
+      let processed = text;
+      const mathBlocks = [];
+
+      const pushMath = (math, displayMode) => {
+        let cleanedMath = math;
+        if (forWord) {
+          cleanedMath = cleanedMath.replace(/\\ /g, '\\quad ');
+        }
+        mathBlocks.push(
+          katex.renderToString(cleanedMath, {
+            displayMode,
+            output: forWord ? 'mathml' : 'htmlAndMathml',
+            throwOnError: false,
+          })
+        );
+        return `@@MATH_BLOCK_${mathBlocks.length - 1}@@`;
+      };
+
+      // 1. $$ ... $$
+      processed = processed.replace(/\$\$([\s\S]*?)\$\$/g, (_, p1) => pushMath(p1, true));
+      // 2. \[ ... \]
+      processed = processed.replace(/\\\[([\s\S]*?)\\\]/g, (_, p1) => pushMath(p1, true));
+      // 3. [ ... ] on own lines
+      processed = processed.replace(/(^|[^\\])\[\s*\n([\s\S]*?)\n\s*\]/gm, (match, p1, p2) => p1 + pushMath(p2, true));
+      // 4. [ ... ] inline with math chars
+      processed = processed.replace(/(^|[^\\])\[([^\]\n]+)\](?!\()/g, (match, p1, p2) => {
+        if (/[\\^_=]/.test(p2)) return p1 + pushMath(p2, true);
+        return match;
+      });
+      // 5. $ ... $
+      processed = processed.replace(/(^|[^$])\$([^$\n]+?)\$(?!\$)/g, (match, p1, p2) => p1 + pushMath(p2, false));
+      // 6. \( ... \)
+      processed = processed.replace(/\\\(([\s\S]*?)\\\)/g, (_, p1) => pushMath(p1, false));
+      // 7. ( ... ) with math chars
+      processed = processed.replace(/(^|[^\\])\(([^)\n]+)\)/g, (match, p1, p2) => {
+        if (/[\\^_]/.test(p2) || /^[a-zA-Z]$/.test(p2) || /^[a-zA-Z]\s*=/.test(p2)) {
+          return p1 + pushMath(p2, false);
+        }
+        return match;
+      });
+
+      let html = marked.parse(processed, { async: false, breaks: true });
+
+      mathBlocks.forEach((mathHtml, index) => {
+        html = html.replace(`@@MATH_BLOCK_${index}@@`, mathHtml);
+      });
+
+      return DOMPurify.sanitize(html, {
+        ADD_TAGS: [
+          'math','semantics','mrow','mi','mo','mn','msup','msub','msubsup',
+          'mfrac','msqrt','mroot','mstyle','merror','mpadded','mphantom',
+          'mfenced','menclose','mspace','munderover','mover','munder','mtable',
+          'mtr','mtd','maligngroup','malignmark','annotation'
+        ],
+        ADD_ATTR: [
+          'display','xmlns','mathvariant','mathcolor','mathbackground','mathsize',
+          'dir','href','class','id','style','encoding'
+        ]
+      });
+    }
+
+    // ─── wordExport.js (ported from wordExport.ts) ───────────────────────────
+    function exportToWord(htmlContent, filename = 'document.doc') {
+      const header = `
+<html xmlns:o='urn:schemas-microsoft-com:office:office'
+      xmlns:w='urn:schemas-microsoft-com:office:word'
+      xmlns:m='http://schemas.microsoft.com/office/2004/12/omml'
+      xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+  <meta charset='utf-8'>
+  <title>Export</title>
+  <style>
+    body { font-family: 'Calibri', sans-serif; font-size: 11pt; }
+    h1, h2, h3, h4, h5, h6 { font-family: 'Calibri Light', sans-serif; }
+    p { margin-bottom: 1em; line-height: 1.5; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }
+    table, th, td { border: 1px solid black; }
+    th, td { padding: 8px; text-align: left; }
+    pre { background-color: #f4f4f4; padding: 10px; border-radius: 4px; font-family: monospace; white-space: pre-wrap; }
+    code { font-family: monospace; background-color: #f4f4f4; padding: 2px 4px; border-radius: 2px; }
+    blockquote { border-left: 4px solid #ccc; margin-left: 0; padding-left: 1em; color: #666; }
+  </style>
+</head>
+<body>`;
+      const footer = `</body></html>`;
+      const sourceHTML = header + htmlContent + footer;
+      const blob = new Blob(['\ufeff', sourceHTML], { type: 'application/msword' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // ─── SVG Icons (inline replacements for lucide-react) ────────────────────
+    const DownloadIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+    );
+    const FileTextIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+      </svg>
+    );
+    const SplitIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M8 19H5c-1 0-2-1-2-2V7c0-1 1-2 2-2h3"/><path d="M16 5h3c1 0 2 1 2 2v10c0 1-1 2-2 2h-3"/><line x1="12" y1="5" x2="12" y2="19"/>
+      </svg>
+    );
+    const FileCode2Icon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m5 12-3 3 3 3"/><path d="m9 18 3-3-3-3"/>
+      </svg>
+    );
+
+    // ─── Default content ──────────────────────────────────────────────────────
+    const DEFAULT_TEXT = `## ChatGPT / Gemini 转 Word 转换器
+
+本工具可将 Markdown 和 LaTeX 公式转换为 Word 文档。
+
+### 功能特点
+- **粗体**、*斜体* 和 \`代码\` 格式。
+- 列表与表格。
+- **数学公式**（渲染为 Word 原生公式格式）。
+
+### 数学公式示例
+
+**行内公式：** 二次方程的求根公式为 $x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$。
+
+**块级公式：**
+$$
+\\int_{a}^{b} x^2 dx = \\frac{b^3 - a^3}{3}
+$$
+
+另一个块级公式示例：
+\\[
+E = mc^2
+\\]
+
+请将您的 ChatGPT 或 Gemini 输出内容粘贴到此处！
+`;
+
+    // ─── App Component ────────────────────────────────────────────────────────
+    function App() {
+      const [markdown, setMarkdown] = useState(DEFAULT_TEXT);
+      const [previewHtml, setPreviewHtml] = useState('');
+
+      useEffect(() => {
+        const timer = setTimeout(() => {
+          setPreviewHtml(processMarkdown(markdown, false));
+        }, 300);
+        return () => clearTimeout(timer);
+      }, [markdown]);
+
+      const handleExport = () => {
+        const wordHtml = processMarkdown(markdown, true);
+        exportToWord(wordHtml, 'Converted_Document.doc');
+      };
+
+      return (
+        <div className="min-h-screen bg-slate-50 flex flex-col" style={{fontFamily: 'system-ui, sans-serif'}}>
+          {/* Header */}
+          <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600">
+                <FileCode2Icon />
+              </div>
+              <div>
+                <h1 className="text-xl font-semibold text-slate-800">AI 转 Word 转换器</h1>
+                <p className="text-sm text-slate-500">南华独中 · Markdown &amp; LaTeX 转原生 Word 格式</p>
+              </div>
+            </div>
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg font-medium transition-colors shadow-sm"
+            >
+              <DownloadIcon />
+              <span>导出为 Word</span>
+            </button>
+          </header>
+
+          {/* Main Content */}
+          <main className="flex-1 flex flex-col md:flex-row overflow-hidden p-4 gap-4" style={{minHeight: 'calc(100vh - 73px)'}}>
+            {/* Editor Pane */}
+            <section className="flex-1 flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden" style={{minHeight: '400px'}}>
+              <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2 text-sm font-medium text-slate-600">
+                <SplitIcon />
+                <span>Markdown 输入</span>
+              </div>
+              <textarea
+                value={markdown}
+                onChange={(e) => setMarkdown(e.target.value)}
+                className="flex-1 w-full p-6 resize-none outline-none text-slate-700 text-sm leading-relaxed"
+                placeholder="在此粘贴您的 ChatGPT 或 Gemini 输出内容…"
+                spellCheck={false}
+                style={{fontFamily: 'monospace', minHeight: '350px'}}
+              />
+            </section>
+
+            {/* Preview Pane */}
+            <section className="flex-1 flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden" style={{minHeight: '400px'}}>
+              <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2 text-sm font-medium text-slate-600">
+                <FileTextIcon />
+                <span>实时预览</span>
+              </div>
+              <div
+                className="flex-1 overflow-y-auto p-8 prose prose-slate max-w-none"
+                dangerouslySetInnerHTML={{ __html: previewHtml }}
+              />
+            </section>
+          </main>
+
+          {/* Footer */}
+          <footer className="text-center py-3 text-xs text-slate-400 border-t border-slate-200 bg-white">
+            南华独中 · AI 转 Word 转换工具
+          </footer>
+        </div>
+      );
+    }
+
+    // ─── Mount ────────────────────────────────────────────────────────────────
+    ReactDOM.createRoot(document.getElementById('root')).render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>
+    );
+  </script>
+</body>
+</html>
