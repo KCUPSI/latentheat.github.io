@@ -313,35 +313,44 @@
 
     // ── Gemini Vision API ──────────────────────────────────────────────────────
     // ── Gemini: try every key × every model until one works ──────────────────
-    const GEMINI_MODELS = [
+    const MODELS_ACCURATE = [
       'gemini-3-flash-preview',
       'gemini-2.5-flash',
       'gemini-2.5-flash-lite',
       'gemini-2.0-flash',
     ];
+    const MODELS_FAST = [
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-2.0-flash',
+    ];
+    // GEMINI_MODELS is set dynamically from ocrMode state
+    let GEMINI_MODELS = MODELS_ACCURATE;
 
     async function callGeminiModel(model, base64, mimeType, apiKey) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [
-            { inline_data: { mime_type: mimeType || 'image/png', data: base64 } },
-            { text: `你是专业的 LaTeX/Markdown 转录员。识别图片中所有内容并转录。
-
-规则：
-- 所有数学公式用 LaTeX：行内用 $...$，独立/多行公式用 $$...$$
-- 保留标题、粗体、列表（Markdown 格式）
-- 中文直接输出中文
-- 只输出转录内容，不要解释、说明或代码块包裹` }
-          ]}],
-          generationConfig: { temperature: 0.1 }
-        })
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey;
+      const promptText = '你是专业的 LaTeX/Markdown 转录员。识别图片中所有内容并转录。\n\n规则：\n- 所有数学公式用 LaTeX：行内用 $...$，独立/多行公式用 $$...$$\n- 保留标题、粗体、列表（Markdown 格式）\n- 中文直接输出中文\n- 只输出转录内容，不要解释、说明或代码块包裹';
+      const body = JSON.stringify({
+        contents: [{ parts: [
+          { inline_data: { mime_type: mimeType || 'image/png', data: base64 } },
+          { text: promptText }
+        ]}],
+        generationConfig: { temperature: 0.1 }
       });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      let res;
+      try {
+        res = await fetch(url, { signal: controller.signal, method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      } catch(e) {
+        clearTimeout(timeout);
+        if (e.name === 'AbortError') throw new Error('超时（15s），跳过');
+        throw e;
+      }
+      clearTimeout(timeout);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        const msg = err.error?.message || `HTTP ${res.status}`;
+        const msg = err.error?.message || ('HTTP ' + res.status);
         throw Object.assign(new Error(msg), {
           invalidKey: res.status === 400 && msg.toLowerCase().includes('api key')
         });
@@ -498,6 +507,10 @@
       const [newKeyInput, setNewKeyInput] = React.useState('');
 
       const hasKeys = apiKeys.length > 0;
+      const [ocrMode, setOcrMode] = React.useState(() => localStorage.getItem('ocr_mode') || 'accurate');
+      const [ocrElapsed, setOcrElapsed] = React.useState(0);
+      const ocrStartRef = React.useRef(null);
+      GEMINI_MODELS = ocrMode === 'fast' ? MODELS_FAST : MODELS_ACCURATE;
       const [fixState, setFixState] = React.useState('idle'); // idle | loading | done
       const katexErrors = React.useMemo(() => {
         const issues = [];
@@ -525,6 +538,14 @@
         const t = setTimeout(() => setPreviewHtml(processMarkdown(markdown, false)), 300);
         return () => clearTimeout(t);
       }, [markdown]);
+
+      React.useEffect(() => {
+        if (ocrState !== 'loading') return;
+        const ticker = setInterval(() => {
+          setOcrElapsed(Math.round((Date.now() - ocrStartRef.current) / 1000));
+        }, 1000);
+        return () => clearInterval(ticker);
+      }, [ocrState]);
 
       // ── Ctrl+V paste image ──────────────────────────────────────────────────
       React.useEffect(() => {
@@ -604,6 +625,8 @@
         if (!file.type.startsWith('image/')) return;
         setPreviewImg(URL.createObjectURL(file));
         setOcrState('loading'); setOcrError('');
+        ocrStartRef.current = Date.now();
+        setOcrElapsed(0);
         setOcrProgress({ msg: '准备中…', pct: 0 });
         try {
           const onProg = (msg, pct) => setOcrProgress({ msg, pct: Math.round((pct||0)*100) });
@@ -622,6 +645,7 @@
             result = await extractWithTesseract(file, onProg);
           }
           setMarkdown(prev => prev.trim() ? prev.trimEnd() + '\n\n---\n\n' + result : result);
+          setOcrElapsed(Math.round((Date.now() - ocrStartRef.current) / 1000));
           setOcrState('idle');
         } catch (err) {
           setOcrError(err.message || '识别失败，请重试');
@@ -682,6 +706,21 @@
 
                 <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-500 mb-4">
                   识别时自动轮询所有 Key × 所有模型，全部失败才切换本地识别。
+                </div>
+
+                {/* OCR Mode toggle */}
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">识别模式</p>
+                <div className="flex gap-2 mb-4">
+                  <button onClick={()=>{ setOcrMode('accurate'); localStorage.setItem('ocr_mode','accurate'); }}
+                    className={'flex-1 py-2 rounded-lg text-xs font-medium border transition-all ' + (ocrMode==='accurate' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300')}>
+                    🎯 精准（默认）
+                    <div className={'text-xs mt-0.5 font-normal ' + (ocrMode==='accurate' ? 'text-indigo-200' : 'text-slate-400')}>Gemini 3 Flash 优先</div>
+                  </button>
+                  <button onClick={()=>{ setOcrMode('fast'); localStorage.setItem('ocr_mode','fast'); }}
+                    className={'flex-1 py-2 rounded-lg text-xs font-medium border transition-all ' + (ocrMode==='fast' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300')}>
+                    ⚡ 快速
+                    <div className={'text-xs mt-0.5 font-normal ' + (ocrMode==='fast' ? 'text-indigo-200' : 'text-slate-400')}>Gemini 2.5 Flash 优先</div>
+                  </button>
                 </div>
 
                 <div className="flex gap-2">
@@ -760,7 +799,10 @@
                     <img src={previewImg} alt="" className="h-10 w-14 object-cover rounded border border-amber-200 opacity-80 flex-shrink-0"/>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium text-amber-700 truncate">{ocrProgress.msg}</p>
-                      <p className="text-xs text-amber-500 mt-0.5">{hasKeys?`自动轮询 ${apiKeys.length} 个 Key × ${GEMINI_MODELS.length} 个模型`:'Tesseract 本地识别中'}</p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-amber-500 mt-0.5">{hasKeys?`自动轮询 ${apiKeys.length} 个 Key × ${GEMINI_MODELS.length} 个模型`:'Tesseract 本地识别中'}</p>
+                        <p className="text-xs text-amber-600 font-mono font-medium mt-0.5">{ocrElapsed}s</p>
+                      </div>
                     </div>
                   </div>
                   <div className="w-full bg-amber-100 rounded-full h-1.5">
@@ -774,7 +816,7 @@
                 <div className="border-b border-slate-100 px-4 py-2 flex items-center gap-3 bg-slate-50">
                   <img src={previewImg} alt="" className="h-10 w-14 object-cover rounded border border-slate-200"/>
                   <div className="flex-1">
-                    <p className="text-xs text-slate-600 font-medium">识别完成 ✓</p>
+                    <p className="text-xs text-slate-600 font-medium">识别完成 ✓ <span className="text-slate-400 font-normal">用时 {ocrElapsed}s</span></p>
                     <p className="text-xs text-slate-400">{window._lastGeminiInfo ? `${window._lastGeminiInfo} 识别成功` : 'Tesseract 本地识别完成'}</p>
                   </div>
                   <button onClick={()=>{setPreviewImg(null);window._lastGeminiInfo=null;}} className="text-slate-300 hover:text-slate-500"><XIcon/></button>
