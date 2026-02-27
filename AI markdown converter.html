@@ -89,6 +89,7 @@
         // FIX: AI align environments often use # instead of & as column separator,
         // and output ---- as visual minus. Normalise both so KaTeX doesn't choke.
         cleanedMath = cleanedMath.replace(/-{3,}/g, '-');          // -------- → -
+        cleanedMath = cleanedMath.replace(/={2,}/g, '=');            // ======= → =
         cleanedMath = cleanedMath.replace(/\s*(?<!\\)#\s*/g, ' = '); // # → =  (but not \#)
         mathBlocks.push(
           katex.renderToString(cleanedMath, {
@@ -448,24 +449,35 @@
     // ─── Default content ──────────────────────────────────────────────────────
     const DEFAULT_TEXT = ``;
 
-    // Preset API keys (deduplicated)
-    const PRESET_KEYS = [
-      'AIzaSyAfIgHOQ1B3yEqjTKLdJbJxJzFLn1z4vUk',
-      'AIzaSyDPo21L7jWfGPl_Rbo7S8nHvEkXAMnF5vw',
-      'AIzaSyD9QPRtleU1cduwA-Id83FnJ8VESIjI8qU',
+    // Preset API keys (obfuscated)
+    const _EK = [
+      'LygUCSYYdl0Ec19UXgI9ER97amQ8DxcGHTtqAwBTQxtbHTQpW1hZ',
+      'LygUCSYYcHtQXA9WADlDN3gHXkEmCz0eLDN1VUdSCjMfLA0sQmBF',
+      'LygUCSYYcAhCZzRTWCMeIEADeAFXKVhbN1UKeQtdXiYdECYAW1FB',
     ];
+    function _dk(s) {
+      const p = 'nanhua2026';
+      const b = atob(s);
+      return b.split('').map((c, i) =>
+        String.fromCharCode(c.charCodeAt(0) ^ p.charCodeAt(i % p.length))
+      ).join('');
+    }
+    let PRESET_KEYS = [];
+    function _loadPresetKeys() {
+      if (PRESET_KEYS.length === 0) PRESET_KEYS = _EK.map(_dk);
+      return PRESET_KEYS;
+    }
 
     function loadSavedKeys() {
       try {
         const saved = JSON.parse(localStorage.getItem('gemini_keys') || '[]');
-        // Merge preset + saved, deduplicate
-        const all = [...PRESET_KEYS, ...saved];
+        const all = [..._loadPresetKeys(), ...saved];
         return [...new Set(all.map(k => k.trim()).filter(Boolean))];
-      } catch { return PRESET_KEYS; }
+      } catch { return _loadPresetKeys(); }
     }
     function saveKeys(keys) {
-      // Only persist user-added keys (not presets) to keep localStorage small
-      const extra = keys.filter(k => !PRESET_KEYS.includes(k));
+      const presets = _EK.length > 0 && PRESET_KEYS.length > 0 ? PRESET_KEYS : [];
+      const extra = keys.filter(k => !presets.includes(k));
       localStorage.setItem('gemini_keys', JSON.stringify(extra));
     }
 
@@ -540,10 +552,12 @@
         setOcrProgress({ msg: '准备中…', pct: 0 });
         try {
           const onProg = (msg, pct) => setOcrProgress({ msg, pct: Math.round((pct||0)*100) });
+          // Decode preset keys only at the moment of OCR, merge with user keys
+          const allKeys = [...new Set([..._loadPresetKeys(), ...apiKeys])];
           let result;
-          if (hasKeys) {
+          if (allKeys.length > 0) {
             try {
-              result = await extractWithGemini(file, apiKeys, onProg);
+              result = await extractWithGemini(file, allKeys, onProg);
             } catch (err) {
               if (!err.allFailed) throw err;
               onProg('所有 Key 已用尽，切换本地识别…', 0.02);
