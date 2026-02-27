@@ -314,10 +314,10 @@
     // ── Gemini Vision API ──────────────────────────────────────────────────────
     // ── Gemini: try every key × every model until one works ──────────────────
     const GEMINI_MODELS = [
-      'gemini-2.5-flash-lite',
+      'gemini-3-flash-preview',
       'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
       'gemini-2.0-flash',
-      'gemini-1.5-flash',
     ];
 
     async function callGeminiModel(model, base64, mimeType, apiKey) {
@@ -350,7 +350,7 @@
       return (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
     }
 
-    // Try keys × models: key1/model1, key1/model2…, key2/model1, key2/model2…
+    // Try models × keys: model1/key1, model1/key2…, model2/key1, model2/key2…
     async function extractWithGemini(imageFile, apiKeys, onProgress) {
       onProgress?.('正在读取图片…', 0.05);
       const base64 = await new Promise((res, rej) => {
@@ -361,29 +361,29 @@
       });
 
       const keys = Array.isArray(apiKeys) ? apiKeys : [apiKeys];
-      const total = keys.length * GEMINI_MODELS.length;
+      const invalidKeys = new Set();
+      const total = GEMINI_MODELS.length * keys.length;
       let attempt = 0;
 
-      for (let ki = 0; ki < keys.length; ki++) {
-        const key = keys[ki].trim();
-        if (!key) continue;
-        for (let mi = 0; mi < GEMINI_MODELS.length; mi++) {
-          const model = GEMINI_MODELS[mi];
-          const label = model.replace('gemini-','Gemini ').replace(/-/g,' ');
+      for (let mi = 0; mi < GEMINI_MODELS.length; mi++) {
+        const model = GEMINI_MODELS[mi];
+        const label = model.replace('gemini-','Gemini ').replace(/-/g,' ');
+        for (let ki = 0; ki < keys.length; ki++) {
+          const key = keys[ki].trim();
+          if (!key || invalidKeys.has(key)) continue;
           attempt++;
           onProgress?.(
-            `Key ${ki+1}/${keys.length} · ${label}`,
+            `${label} · Key ${ki+1}/${keys.length}`,
             0.1 + (attempt / total) * 0.8
           );
           try {
             const result = await callGeminiModel(model, base64, imageFile.type, key);
-            window._lastGeminiInfo = `Key ${ki+1} · ${label}`;
+            window._lastGeminiInfo = `${label} · Key ${ki+1}`;
             onProgress?.(`✓ 识别完成`, 1.0);
             return result;
           } catch (err) {
-            console.warn(`[OCR] Key${ki+1} ${model}:`, err.message);
-            // If key is just invalid, skip all models for this key
-            if (err.invalidKey) break;
+            console.warn(`[OCR] ${model} Key${ki+1}:`, err.message);
+            if (err.invalidKey) invalidKeys.add(key);
           }
         }
       }
@@ -498,6 +498,28 @@
       const [newKeyInput, setNewKeyInput] = React.useState('');
 
       const hasKeys = apiKeys.length > 0;
+      const [fixState, setFixState] = React.useState('idle'); // idle | loading | done
+      const katexErrors = React.useMemo(() => {
+        const issues = [];
+        const tmp = document.createElement('div');
+        tmp.innerHTML = previewHtml;
+        // 1. KaTeX red error nodes (actual render failures)
+        tmp.querySelectorAll('.katex-error').forEach(el => {
+          const t = el.textContent?.trim();
+          if (t) issues.push('⚠ ' + t.slice(0, 60) + (t.length > 60 ? '…' : ''));
+        });
+        // 2. Raw LaTeX in plain text — but exclude math/annotation nodes
+        // (KaTeX embeds original source in <annotation> which shows up in textContent)
+        tmp.querySelectorAll('math, .katex, script, style').forEach(el => el.remove());
+        const text = tmp.textContent || '';
+        const matches = text.match(/\\[a-zA-Z]{2,}[^\s]*/g) || [];
+        matches.slice(0, 5).forEach(m => {
+          const s = m.trim().slice(0, 60);
+          if (!issues.find(i => i.includes(s))) issues.push('✎ ' + s);
+        });
+        return issues;
+      }, [previewHtml]);
+      const hasKatexError = katexErrors.length > 0;
 
       React.useEffect(() => {
         const t = setTimeout(() => setPreviewHtml(processMarkdown(markdown, false)), 300);
@@ -509,13 +531,16 @@
         const handlePaste = (e) => {
           const items = e.clipboardData?.items;
           if (!items) return;
-          for (const item of items) {
-            if (item.type.startsWith('image/')) {
-              e.preventDefault();
-              const file = item.getAsFile();
-              if (file) processImageFile(file);
-              break;
-            }
+          // Collect all items as array, prioritise raster images over metafiles
+          const arr = Array.from(items);
+          // Preferred: png/jpeg/gif/webp (raster)
+          let imgItem = arr.find(it => /^image\/(png|jpeg|jpg|gif|webp)/i.test(it.type));
+          // Fallback: any image/* (includes emf/wmf from Word)
+          if (!imgItem) imgItem = arr.find(it => it.type.startsWith('image/'));
+          if (imgItem) {
+            e.preventDefault();
+            const file = imgItem.getAsFile();
+            if (file) processImageFile(file);
           }
         };
         window.addEventListener('paste', handlePaste);
@@ -527,6 +552,36 @@
         const ok = await copyForWord(processMarkdown(markdown, true));
         setCopyState(ok ? 'success' : 'error');
         setTimeout(() => setCopyState('idle'), 2500);
+      };
+
+      const handleFixEquations = async () => {
+        const allKeys = [...new Set([..._loadPresetKeys(), ...apiKeys])];
+        if (!allKeys.length) { alert('请先设置 API Key'); return; }
+        setFixState('loading');
+        const prompt = '你是 LaTeX 专家。以下是从图片 OCR 识别出来的 Markdown 文本，其中部分数学公式有错误（符号缺失、分隔符错误、格式混乱等）。请修正所有错误的 LaTeX 公式，保持其他文字内容完全不变，只返回修正后的完整 Markdown，不要任何解释。\n\n---\n\n' + markdown;
+        for (const model of GEMINI_MODELS) {
+          for (const key of allKeys) {
+            try {
+              const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
+              const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+              });
+              const data = await res.json();
+              if (data.error) throw new Error(data.error.message);
+              const fixed = data.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (fixed) {
+                setMarkdown(fixed.replace(/^```(markdown)?\n?/, '').replace(/\n?```$/, '').trim());
+                setFixState('done');
+                setTimeout(() => setFixState('idle'), 3000);
+                return;
+              }
+            } catch(e) { console.warn('[Fix]', model, e.message); }
+          }
+        }
+        setFixState('idle');
+        alert('修正失败，请稍后再试');
       };
 
       const handleAddKey = () => {
@@ -734,8 +789,29 @@
 
             {/* Preview */}
             <section className="flex-1 flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden" style={{minHeight:'400px'}}>
-              <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2 text-sm font-medium text-slate-600">
-                <FileTextIcon/><span>实时预览</span>
+              <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center justify-between gap-2 text-sm font-medium text-slate-600">
+                <div className="flex items-center gap-2"><FileTextIcon/><span>实时预览</span></div>
+                {hasKatexError && (
+                  <div className="relative group">
+                    <button onClick={handleFixEquations} disabled={fixState==='loading'}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${fixState==='loading'?'bg-amber-50 border-amber-200 text-amber-600 cursor-not-allowed':fixState==='done'?'bg-green-50 border-green-200 text-green-700':'bg-red-50 border-red-200 text-red-600 hover:bg-red-100'}`}>
+                      {fixState==='loading'?<SpinnerIcon/>:fixState==='done'?<CheckIcon/>:<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>}
+                      <span>{fixState==='loading'?'修正中…':fixState==='done'?'修正完成！':'✦ 修正公式'}</span>
+                      {fixState==='idle' && <span className="ml-1 bg-red-200 text-red-700 rounded-full w-4 h-4 flex items-center justify-center font-bold" style={{fontSize:'10px'}}>{katexErrors.length}</span>}
+                    </button>
+                    {fixState==='idle' && (
+                      <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block w-72 bg-slate-800 text-white rounded-lg shadow-xl p-3 text-xs">
+                        <p className="font-semibold text-slate-300 mb-2">检测到 {katexErrors.length} 处公式问题：</p>
+                        <ul className="space-y-1">
+                          {katexErrors.map((e,i) => (
+                            <li key={i} className="font-mono text-red-300 truncate">{e}</li>
+                          ))}
+                        </ul>
+                        <p className="mt-2 text-slate-400">点击按钮用 Gemini 自动修正</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex-1 overflow-y-auto p-8 prose prose-slate max-w-none" dangerouslySetInnerHTML={{__html:previewHtml}}/>
             </section>
