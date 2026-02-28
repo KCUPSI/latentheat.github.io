@@ -211,7 +211,7 @@
 
     // ─── Copy for Word (Clipboard API) ───────────────────────────────────────
     async function copyForWord(htmlContent) {
-      const header = `<html><body>`;
+      const header = `<html><head><style>table{border-collapse:collapse;width:100%;}table,th,td{border:1px solid black;}th,td{padding:8px;text-align:left;}th{background:#f8fafc;font-weight:600;}</style></head><body>`;
       const footer = `</body></html>`;
       const fullHtml = header + htmlContent + footer;
 
@@ -327,7 +327,7 @@
     // GEMINI_MODELS is set dynamically from ocrMode state
     let GEMINI_MODELS = MODELS_ACCURATE;
 
-    async function callGeminiModel(model, base64, mimeType, apiKey) {
+    async function callGeminiModel(model, base64, mimeType, apiKey, timeoutSec) {
       const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey;
       const promptText = '你是专业的 LaTeX/Markdown 转录员。识别图片中所有内容并转录。\n\n规则：\n- 所有数学公式用 LaTeX：行内用 $...$，独立/多行公式用 $$...$$\n- 保留标题、粗体、列表（Markdown 格式）\n- 中文直接输出中文\n- 只输出转录内容，不要解释、说明或代码块包裹';
       const body = JSON.stringify({
@@ -338,7 +338,7 @@
         generationConfig: { temperature: 0.1 }
       });
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      const timeout = setTimeout(() => controller.abort(), (timeoutSec || 30) * 1000);
       let res;
       try {
         res = await fetch(url, { signal: controller.signal, method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
@@ -351,16 +351,24 @@
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         const msg = err.error?.message || ('HTTP ' + res.status);
-        throw Object.assign(new Error(msg), {
-          invalidKey: res.status === 400 && msg.toLowerCase().includes('api key')
-        });
+        const skipImmediately =
+          res.status === 429 ||  // TooManyRequests
+          res.status === 403 ||  // Forbidden (key disabled/no permission)
+          res.status === 404 ||  // NotFound (model not available for this key)
+          res.status === 503 ||  // ServiceUnavailable
+          msg.toLowerCase().includes('quota') ||
+          msg.toLowerCase().includes('rate limit') ||
+          msg.toLowerCase().includes('resource exhausted') ||
+          msg.toLowerCase().includes('forbidden') ||
+          (res.status === 400 && msg.toLowerCase().includes('api key'));
+        throw Object.assign(new Error(msg), { invalidKey: skipImmediately });
       }
       const data = await res.json();
       return (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
     }
 
     // Try models × keys: model1/key1, model1/key2…, model2/key1, model2/key2…
-    async function extractWithGemini(imageFile, apiKeys, onProgress) {
+    async function extractWithGemini(imageFile, apiKeys, onProgress, keyTimeout) {
       onProgress?.('正在读取图片…', 0.05);
       const base64 = await new Promise((res, rej) => {
         const r = new FileReader();
@@ -386,7 +394,7 @@
             0.1 + (attempt / total) * 0.8
           );
           try {
-            const result = await callGeminiModel(model, base64, imageFile.type, key);
+            const result = await callGeminiModel(model, base64, imageFile.type, key, keyTimeout);
             window._lastGeminiInfo = `${label} · Key ${ki+1}`;
             onProgress?.(`✓ 识别完成`, 1.0);
             return result;
@@ -508,6 +516,7 @@
 
       const hasKeys = apiKeys.length > 0;
       const [ocrMode, setOcrMode] = React.useState(() => localStorage.getItem('ocr_mode') || 'accurate');
+      const [keyTimeout, setKeyTimeout] = React.useState(() => parseInt(localStorage.getItem('key_timeout') || '30'));
       const [ocrElapsed, setOcrElapsed] = React.useState(0);
       const ocrStartRef = React.useRef(null);
       GEMINI_MODELS = ocrMode === 'fast' ? MODELS_FAST : MODELS_ACCURATE;
@@ -635,7 +644,7 @@
           let result;
           if (allKeys.length > 0) {
             try {
-              result = await extractWithGemini(file, allKeys, onProg);
+              result = await extractWithGemini(file, allKeys, onProg, keyTimeout);
             } catch (err) {
               if (!err.allFailed) throw err;
               onProg('所有 Key 已用尽，切换本地识别…', 0.02);
@@ -706,6 +715,15 @@
 
                 <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-500 mb-4">
                   识别时自动轮询所有 Key × 所有模型，全部失败才切换本地识别。
+                </div>
+
+                {/* Timeout setting */}
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">跳过 Key 时间</p>
+                <div className="flex items-center gap-3 mb-4">
+                  <input type="range" min="5" max="100" step="5" value={keyTimeout}
+                    onChange={e => { const v=parseInt(e.target.value); setKeyTimeout(v); localStorage.setItem('key_timeout', v); }}
+                    className="flex-1 accent-indigo-600"/>
+                  <span className="text-sm font-mono font-medium text-slate-700 w-12 text-right">{keyTimeout}s</span>
                 </div>
 
                 {/* OCR Mode toggle */}
