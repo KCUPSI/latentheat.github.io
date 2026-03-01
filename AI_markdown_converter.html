@@ -1,0 +1,1013 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 转 Word 转换器 — 南华独中</title>
+
+  <!-- KaTeX -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+
+  <!-- marked -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+
+  <!-- DOMPurify -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+
+  <!-- React + ReactDOM -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel for JSX -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.10/babel.min.js"></script>
+
+  <!-- Tesseract.js local OCR — runs entirely in browser, no API, no network after first load -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          typography: {}
+        }
+      }
+    };
+  </script>
+
+
+  <style>
+    /* Prose styles since Tailwind Typography CDN plugin may not load */
+    .prose { color: #334155; line-height: 1.5; max-width: 65ch; }
+    .prose h1,.prose h2,.prose h3,.prose h4 { color: #0f172a; font-weight: 600; margin-top: 1.5em; margin-bottom: 0.5em; }
+    .prose h1 { font-size: 2em; }
+    .prose h2 { font-size: 1.5em; }
+    .prose h3 { font-size: 1.25em; }
+    .prose p { margin-top: 1em; margin-bottom: 1em; }
+    .prose ul { list-style-type: disc; padding-left: 1.5em; margin: 1em 0; }
+    .prose ol { list-style-type: decimal; padding-left: 1.5em; margin: 1em 0; }
+    .prose li { margin: 0.3em 0; }
+    .prose code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; font-family: monospace; font-size: 0.875em; }
+    .prose pre { background: #f1f5f9; padding: 1em; border-radius: 8px; overflow-x: auto; }
+    .prose pre code { background: none; padding: 0; }
+    .prose blockquote { border-left: 4px solid #cbd5e1; padding-left: 1em; color: #64748b; margin: 1em 0; }
+    .prose table { width: 100%; border-collapse: collapse; margin: 1em 0; }
+    .prose th,.prose td { border: 1px solid #e2e8f0; padding: 8px 12px; text-align: left; }
+    .prose th { background: #f8fafc; font-weight: 600; }
+    .prose a { color: #4f46e5; text-decoration: underline; }
+    .prose strong { font-weight: 700; }
+    .prose em { font-style: italic; }
+    .prose-slate { color: #475569; }
+    .prose-slate h1,.prose-slate h2,.prose-slate h3,.prose-slate h4 { color: #1e293b; }
+    .katex-display { overflow-x: auto; padding: 4px 0; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // ─── markdown.js (ported from markdown.ts) ───────────────────────────────
+    function processMarkdown(text, forWord = false) {
+      let processed = text;
+      const mathBlocks = [];
+
+      const pushMath = (math, displayMode) => {
+        let cleanedMath = math;
+        if (forWord) {
+          cleanedMath = cleanedMath.replace(/\\ /g, '\\quad ');
+        }
+        // FIX: \muX (e.g. \muF, \muC, \mus) — use \mu\text{X} so the letter
+        // renders in roman (text) font next to the Greek μ, giving proper "μF" style.
+        cleanedMath = cleanedMath.replace(/\\mu([A-Za-z])/g, '\\mu\\text{$1}');
+        // FIX: \left{ and \right} — braces are grouping chars, must be escaped for display.
+        cleanedMath = cleanedMath.replace(/\\left\{/g, '\\left\\{');
+        cleanedMath = cleanedMath.replace(/\\right\}/g, '\\right\\}');
+        // FIX: AI align environments often use # instead of & as column separator,
+        // and output ---- as visual minus. Normalise both so KaTeX doesn't choke.
+        cleanedMath = cleanedMath.replace(/-{3,}/g, '-');          // -------- → -
+        cleanedMath = cleanedMath.replace(/={2,}/g, '=');            // ======= → =
+        cleanedMath = cleanedMath.replace(/\s*(?<!\\)#\s*/g, ' = '); // # → =  (but not \#)
+        mathBlocks.push(
+          katex.renderToString(cleanedMath, {
+            displayMode,
+            output: forWord ? 'mathml' : 'htmlAndMathml',
+            throwOnError: false,
+          })
+        );
+        // Use non-printable chars as delimiters — avoids marked treating underscores
+        // inside @@MATH_BLOCK_N@@ as italic markers, which would mangle the placeholder.
+        return `\x02MATH${mathBlocks.length - 1}\x03`;
+      };
+
+      // PRE-STEP: Fix AI output patterns where \mu is wrongly placed inside \text{}
+      // e.g. \text{ \mu F} or \text{\mu F} → \mu\text{F}
+      // Also handles \text{\muF} and variants with extra spaces
+      processed = processed.replace(/\\text\{\s*\\mu\s*([A-Za-z]*)\s*\}/g, (_, unit) => {
+        return unit ? `\\mu\\text{${unit.trim()}}` : '\\mu';
+      });
+
+      // Also fix bare \mu followed by space + letter unit (e.g. "\mu F" with space)
+      processed = processed.replace(/\\mu\s+([A-Za-z])(?=[^A-Za-z]|$)/gm, (_, c) => `\\mu\\text{${c}}`);
+
+
+      //    e.g. ($H_2O$) → renders as inline math without the surrounding parens
+      processed = processed.replace(/\(\$([^$\n]+?)\$\)/g, (_, p1) => pushMath(p1, false));
+
+      // 1. $$ ... $$
+      processed = processed.replace(/\$\$([\s\S]*?)\$\$/g, (_, p1) => pushMath(p1, true));
+      // 2. \[ ... \]
+      processed = processed.replace(/\\\[([\s\S]*?)\\\]/g, (_, p1) => pushMath(p1, true));
+      // 3. [ ... ] on own lines
+      processed = processed.replace(/(^|[^\\])\[\s*\n([\s\S]*?)\n\s*\]/gm, (match, p1, p2) => p1 + pushMath(p2, true));
+      // 4. [ ... ] inline with math chars
+      processed = processed.replace(/(^|[^\\])\[([^\]\n]+)\](?!\()/g, (match, p1, p2) => {
+        if (/[\\^_=]/.test(p2)) return p1 + pushMath(p2, true);
+        return match;
+      });
+      // 5. $ ... $
+      processed = processed.replace(/(^|[^$])\$([^$\n]+?)\$(?!\$)/g, (match, p1, p2) => p1 + pushMath(p2, false));
+      // 6. \( ... \)
+      processed = processed.replace(/\\\(([\s\S]*?)\\\)/g, (_, p1) => pushMath(p1, false));
+      // 7. ( ... ) with math chars
+      // FIX: removed /^[a-zA-Z]$/ check — it was consuming list labels like (a) (b) (c) (d)
+      processed = processed.replace(/(^|[^\\])\(([^)\n]+)\)/g, (match, p1, p2) => {
+        if (/[\\^_]/.test(p2) || /^[a-zA-Z]\s*=/.test(p2)) {
+          return p1 + pushMath(p2, false);
+        }
+        return match;
+      });
+
+      // 8. Catch \muX and common LaTeX unit/Greek commands that appear in plain text
+      //    WITHOUT any $ delimiters — e.g. AI might output "20 \muF" without math fences.
+      //    We wrap them in inline math here, after all fenced extraction is done.
+      // 8. Catch \mu\text{X} and plain \mu in text not yet wrapped in math delimiters
+      processed = processed.replace(/\\mu(?:\\text\{[A-Za-z]+\})?(?=[^A-Za-z{]|$)/gm,
+        (match) => pushMath(match, false));
+      // Also catch standalone Greek letters used as units: \Omega, \alpha, etc.
+      processed = processed.replace(/\\(Omega|alpha|beta|gamma|delta|theta|lambda|sigma|omega|pi|phi|psi|eta|tau|nu|xi|rho|kappa|epsilon|zeta)(?=[^A-Za-z{]|$)/gm,
+        (_, cmd) => pushMath(`\\${cmd}`, false));
+
+      let html = marked.parse(processed, { async: false, breaks: true });
+
+      // FIX: use replaceAll so every occurrence gets replaced (not just the first)
+      mathBlocks.forEach((mathHtml, index) => {
+        html = html.replaceAll(`\x02MATH${index}\x03`, mathHtml);
+      });
+
+      return DOMPurify.sanitize(html, {
+        ADD_TAGS: [
+          'math','semantics','mrow','mi','mo','mn','msup','msub','msubsup',
+          'mfrac','msqrt','mroot','mstyle','merror','mpadded','mphantom',
+          'mfenced','menclose','mspace','munderover','mover','munder','mtable',
+          'mtr','mtd','maligngroup','malignmark','annotation'
+        ],
+        ADD_ATTR: [
+          'display','xmlns','mathvariant','mathcolor','mathbackground','mathsize',
+          'dir','href','class','id','style','encoding'
+        ]
+      });
+    }
+
+    // ─── wordExport.js (ported from wordExport.ts) ───────────────────────────
+    function exportToWord(htmlContent, filename = 'document.doc') {
+      const header = `
+<html xmlns:o='urn:schemas-microsoft-com:office:office'
+      xmlns:w='urn:schemas-microsoft-com:office:word'
+      xmlns:m='http://schemas.microsoft.com/office/2004/12/omml'
+      xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+  <meta charset='utf-8'>
+  <title>Export</title>
+  <style>
+    body { font-family: 'Calibri', sans-serif; font-size: 11pt; line-height: 1.5; }
+    h1, h2, h3, h4, h5, h6 { font-family: 'Calibri Light', sans-serif; }
+    p { margin-bottom: 1em; line-height: 1.5; }
+    li { line-height: 1.5; margin-bottom: 0.4em; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }
+    table, th, td { border: 1px solid black; }
+    th, td { padding: 8px; text-align: left; }
+    pre { background-color: #f4f4f4; padding: 10px; border-radius: 4px; font-family: monospace; white-space: pre-wrap; }
+    code { font-family: monospace; background-color: #f4f4f4; padding: 2px 4px; border-radius: 2px; }
+    blockquote { border-left: 4px solid #ccc; margin-left: 0; padding-left: 1em; color: #666; }
+  </style>
+</head>
+<body>`;
+      const footer = `</body></html>`;
+      const sourceHTML = header + htmlContent + footer;
+      const blob = new Blob(['\ufeff', sourceHTML], { type: 'application/msword' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // ─── Copy for Word (Clipboard API) ───────────────────────────────────────
+    async function copyForWord(htmlContent) {
+      const header = `<html><head><style>table{border-collapse:collapse;width:100%;}table,th,td{border:1px solid black;}th,td{padding:8px;text-align:left;}th{background:#f8fafc;font-weight:600;}</style></head><body>`;
+      const footer = `</body></html>`;
+      const fullHtml = header + htmlContent + footer;
+
+      try {
+        // Modern way: ClipboardItem with text/html
+        const blob = new Blob([fullHtml], { type: 'text/html' });
+        const item = new ClipboardItem({ 'text/html': blob });
+        await navigator.clipboard.write([item]);
+        return true;
+      } catch (e) {
+        // Fallback: execCommand (older browsers)
+        try {
+          const el = document.createElement('div');
+          el.innerHTML = htmlContent;
+          el.style.position = 'fixed';
+          el.style.opacity = '0';
+          document.body.appendChild(el);
+          const range = document.createRange();
+          range.selectNode(el);
+          window.getSelection().removeAllRanges();
+          window.getSelection().addRange(range);
+          document.execCommand('copy');
+          window.getSelection().removeAllRanges();
+          document.body.removeChild(el);
+          return true;
+        } catch (e2) {
+          return false;
+        }
+      }
+    }
+
+
+    const CopyIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+      </svg>
+    );
+    const CheckIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+    );
+    const DownloadIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+    );
+    const FileTextIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+      </svg>
+    );
+    const SplitIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M8 19H5c-1 0-2-1-2-2V7c0-1 1-2 2-2h3"/><path d="M16 5h3c1 0 2 1 2 2v10c0 1-1 2-2 2h-3"/><line x1="12" y1="5" x2="12" y2="19"/>
+      </svg>
+    );
+    const FileCode2Icon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m5 12-3 3 3 3"/><path d="m9 18 3-3-3-3"/>
+      </svg>
+    );
+
+    // ─── Icons ────────────────────────────────────────────────────────────────
+    const ImageIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+        <polyline points="21 15 16 10 5 21"/>
+      </svg>
+    );
+    const KeyIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+      </svg>
+    );
+    const XIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    );
+    const SpinnerIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+        style={{animation:'spin 1s linear infinite'}}>
+        <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+      </svg>
+    );
+
+    // ─── OCR Mode: 'gemini' | 'tesseract' ────────────────────────────────────
+
+    // ── Gemini Vision API ──────────────────────────────────────────────────────
+    // ── Gemini: try every key × every model until one works ──────────────────
+    const MODELS_ACCURATE = [
+      'gemini-3-flash-preview',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-2.0-flash',
+    ];
+    const MODELS_FAST = [
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-2.0-flash',
+    ];
+    // GEMINI_MODELS is set dynamically from ocrMode state
+    let GEMINI_MODELS = MODELS_ACCURATE;
+
+    async function callGeminiModel(model, base64, mimeType, apiKey, timeoutSec) {
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey;
+      const promptText = '你是专业的 LaTeX/Markdown 转录员。识别图片中所有内容并转录。\n\n规则：\n- 所有数学公式用 LaTeX：行内用 $...$，独立/多行公式用 $$...$$\n- 保留标题、粗体、列表（Markdown 格式）\n- 中文直接输出中文\n- 只输出转录内容，不要解释、说明或代码块包裹';
+      const body = JSON.stringify({
+        contents: [{ parts: [
+          { inline_data: { mime_type: mimeType || 'image/png', data: base64 } },
+          { text: promptText }
+        ]}],
+        generationConfig: { temperature: 0.1 }
+      });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), (timeoutSec || 30) * 1000);
+      let res;
+      try {
+        res = await fetch(url, { signal: controller.signal, method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      } catch(e) {
+        clearTimeout(timeout);
+        if (e.name === 'AbortError') throw new Error('超时（15s），跳过');
+        throw e;
+      }
+      clearTimeout(timeout);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        const msg = err.error?.message || ('HTTP ' + res.status);
+        const skipImmediately =
+          res.status === 429 ||  // TooManyRequests
+          res.status === 403 ||  // Forbidden (key disabled/no permission)
+          res.status === 404 ||  // NotFound (model not available for this key)
+          res.status === 503 ||  // ServiceUnavailable
+          msg.toLowerCase().includes('quota') ||
+          msg.toLowerCase().includes('rate limit') ||
+          msg.toLowerCase().includes('resource exhausted') ||
+          msg.toLowerCase().includes('forbidden') ||
+          (res.status === 400 && msg.toLowerCase().includes('api key'));
+        throw Object.assign(new Error(msg), { invalidKey: skipImmediately });
+      }
+      const data = await res.json();
+      return (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    }
+
+    // Try models × keys: model1/key1, model1/key2…, model2/key1, model2/key2…
+    async function extractWithGemini(imageFile, apiKeys, onProgress, keyTimeout) {
+      onProgress?.('正在读取图片…', 0.05);
+      const base64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = e => res(e.target.result.split(',')[1]);
+        r.onerror = rej;
+        r.readAsDataURL(imageFile);
+      });
+
+      const keys = Array.isArray(apiKeys) ? apiKeys : [apiKeys];
+      const invalidKeys = new Set();
+      const total = GEMINI_MODELS.length * keys.length;
+      let attempt = 0;
+
+      for (let mi = 0; mi < GEMINI_MODELS.length; mi++) {
+        const model = GEMINI_MODELS[mi];
+        const label = model.replace('gemini-','Gemini ').replace(/-/g,' ');
+        for (let ki = 0; ki < keys.length; ki++) {
+          const key = keys[ki].trim();
+          if (!key || invalidKeys.has(key)) continue;
+          attempt++;
+          onProgress?.(
+            `${label} · Key ${ki+1}/${keys.length}`,
+            0.1 + (attempt / total) * 0.8
+          );
+          try {
+            const result = await callGeminiModel(model, base64, imageFile.type, key, keyTimeout);
+            window._lastGeminiInfo = `${label} · Key ${ki+1}`;
+            onProgress?.(`✓ 识别完成`, 1.0);
+            return result;
+          } catch (err) {
+            console.warn(`[OCR] ${model} Key${ki+1}:`, err.message);
+            if (err.invalidKey) invalidKeys.add(key);
+          }
+        }
+      }
+      throw Object.assign(new Error('所有 API Key 均已耗尽或不可用，切换本地识别'), { allFailed: true });
+    }
+
+    // ── Tesseract.js Local OCR ────────────────────────────────────────────────
+    let _ocrWorker = null;
+    async function getOcrWorker(onProgress) {
+      if (_ocrWorker) return _ocrWorker;
+      _ocrWorker = await Tesseract.createWorker(['chi_sim', 'eng'], 1, {
+        logger: m => {
+          if (m.status === 'loading tesseract core')
+            onProgress?.('正在加载 OCR 引擎…', 0.1);
+          else if (m.status === 'loading language traineddata')
+            onProgress?.('正在加载语言包…（首次约 20MB，之后缓存）', 0.1 + (m.progress || 0) * 0.5);
+          else if (m.status === 'recognizing text')
+            onProgress?.('正在识别文字…', 0.6 + (m.progress || 0) * 0.35);
+        }
+      });
+      return _ocrWorker;
+    }
+
+    function autoWrapMath(text) {
+      const lines = text.split('\n');
+      return lines.map(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return line;
+        const chineseCount = (trimmed.match(/[\u4e00-\u9fff]/g) || []).length;
+        const hasMath = /[=<>]/.test(trimmed) && /[0-9a-zA-Z]/.test(trimmed);
+        const looksLikePureMath = hasMath && chineseCount < 3 && trimmed.length < 120;
+        if (looksLikePureMath) {
+          const prefixMatch = trimmed.match(/^(\s*(?:\d+[\.\)、]|\([a-zA-Z]\))\s*)/);
+          if (prefixMatch) {
+            const prefix = prefixMatch[1];
+            const rest = trimmed.slice(prefix.length).trim();
+            const parts = splitEquationColumns(rest);
+            return prefix + parts.map(p => `$${cleanForLatex(p)}$`).join('　　');
+          }
+          const parts = splitEquationColumns(trimmed);
+          return parts.map(p => `$${cleanForLatex(p)}$`).join('　　');
+        }
+        return line;
+      }).join('\n');
+    }
+    function splitEquationColumns(str) {
+      const parts = str.split(/\s{2,}/);
+      return parts.filter(p => p.trim()).length > 1 ? parts.filter(p => p.trim()) : [str];
+    }
+    function cleanForLatex(expr) {
+      return expr.replace(/\s*=\s*/g,'=').replace(/\s*\+\s*/g,'+').replace(/\s*-\s*/g,'-')
+        .replace(/(\d)\s+([a-zA-Z])/g,'$1$2').replace(/([a-zA-Z])\s+(\d)/g,'$1$2')
+        .replace(/\s*\^\s*/g,'^').replace(/\s*_\s*/g,'_').trim();
+    }
+    async function extractWithTesseract(imageFile, onProgress) {
+      const worker = await getOcrWorker(onProgress);
+      onProgress?.('正在识别图片文字…', 0.6);
+      const { data: { text } } = await worker.recognize(imageFile);
+      onProgress?.('自动检测数学式…', 0.95);
+      return autoWrapMath(text.replace(/\n{3,}/g, '\n\n').trim());
+    }
+
+    // ─── Default content ──────────────────────────────────────────────────────
+    const DEFAULT_TEXT = ``;
+
+    // Preset API keys (obfuscated)
+    const _EK = [
+      'LygUCSYYdl0Ec19UXgI9ER97amQ8DxcGHTtqAwBTQxtbHTQpW1hZ',
+      'LygUCSYYcHtQXA9WADlDN3gHXkEmCz0eLDN1VUdSCjMfLA0sQmBF',
+      'LygUCSYYcAhCZzRTWCMeIEADeAFXKVhbN1UKeQtdXiYdECYAW1FB',
+    ];
+    function _dk(s) {
+      const p = 'nanhua2026';
+      const b = atob(s);
+      return b.split('').map((c, i) =>
+        String.fromCharCode(c.charCodeAt(0) ^ p.charCodeAt(i % p.length))
+      ).join('');
+    }
+    let PRESET_KEYS = [];
+    function _loadPresetKeys() {
+      if (PRESET_KEYS.length === 0) PRESET_KEYS = _EK.map(_dk);
+      return PRESET_KEYS;
+    }
+
+    function loadSavedKeys() {
+      try {
+        const saved = JSON.parse(localStorage.getItem('gemini_keys') || '[]');
+        const all = [..._loadPresetKeys(), ...saved];
+        return [...new Set(all.map(k => k.trim()).filter(Boolean))];
+      } catch { return _loadPresetKeys(); }
+    }
+    function saveKeys(keys) {
+      const presets = _EK.length > 0 && PRESET_KEYS.length > 0 ? PRESET_KEYS : [];
+      const extra = keys.filter(k => !presets.includes(k));
+      localStorage.setItem('gemini_keys', JSON.stringify(extra));
+    }
+
+    // ─── App Component ────────────────────────────────────────────────────────
+    function App() {
+      const [markdown, setMarkdown] = React.useState(DEFAULT_TEXT);
+      const [previewHtml, setPreviewHtml] = React.useState('');
+      const [copyState, setCopyState] = React.useState('idle');
+      const [ocrState, setOcrState] = React.useState('idle');
+      const [ocrError, setOcrError] = React.useState('');
+      const [ocrProgress, setOcrProgress] = React.useState({ msg: '', pct: 0 });
+      const [previewImg, setPreviewImg] = React.useState(null);
+      const fileInputRef = React.useRef(null);
+
+      // Multi-key state
+      const [apiKeys, setApiKeys] = React.useState(() => loadSavedKeys());
+      const [showKeyModal, setShowKeyModal] = React.useState(false);
+      const [newKeyInput, setNewKeyInput] = React.useState('');
+
+      const hasKeys = apiKeys.length > 0;
+      const [ocrMode, setOcrMode] = React.useState(() => localStorage.getItem('ocr_mode') || 'accurate');
+      const [keyTimeout, setKeyTimeout] = React.useState(() => parseInt(localStorage.getItem('key_timeout') || '30'));
+      const [ocrElapsed, setOcrElapsed] = React.useState(0);
+      const ocrStartRef = React.useRef(null);
+      GEMINI_MODELS = ocrMode === 'fast' ? MODELS_FAST : MODELS_ACCURATE;
+      const [fixState, setFixState] = React.useState('idle'); // idle | loading | done
+
+      // ── Formula Generator ──────────────────────────────────────────────────
+      const [showFormulaModal, setShowFormulaModal] = React.useState(false);
+      const [formulaInput, setFormulaInput] = React.useState('');
+      const [formulaState, setFormulaState] = React.useState('idle'); // idle | loading | error
+      const [formulaError, setFormulaError] = React.useState('');
+      const formulaInputRef = React.useRef(null);
+      const textareaRef = React.useRef(null);
+
+      const handleGenerateFormula = async () => {
+        const desc = formulaInput.trim();
+        if (!desc) return;
+        const allKeys = [...new Set([..._loadPresetKeys(), ...apiKeys])];
+        if (!allKeys.length) { setFormulaError('请先设置 API Key'); return; }
+        setFormulaState('loading');
+        setFormulaError('');
+        const prompt = `你是 LaTeX 专家。用户描述了一个数学公式，请将其转换为 LaTeX。
+
+要求：
+- 只输出 LaTeX 公式本身，不要任何解释、文字或代码块
+- 简单行内公式用 $...$，复杂/多行公式用 $$...$$
+- 绝对不要输出除公式以外的任何内容
+
+用户描述：${desc}`;
+        for (const model of GEMINI_MODELS) {
+          for (const key of allKeys) {
+            try {
+              const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
+              const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: prompt }] }],
+                  generationConfig: { temperature: 0.1 }
+                })
+              });
+              const data = await res.json();
+              if (data.error) throw new Error(data.error.message);
+              let formula = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+              // Strip any accidental markdown code fences
+              formula = formula.replace(/^```(?:latex|tex|math)?\n?/i, '').replace(/\n?```$/,'').trim();
+              if (!formula) throw new Error('空响应');
+              // Insert at cursor or append
+              const ta = textareaRef.current;
+              if (ta) {
+                const start = ta.selectionStart ?? markdown.length;
+                const end = ta.selectionEnd ?? markdown.length;
+                const before = markdown.slice(0, start);
+                const after = markdown.slice(end);
+                const sep = before && !before.endsWith('\n') ? '\n' : '';
+                setMarkdown(before + sep + formula + (after && !after.startsWith('\n') ? '\n' : '') + after);
+              } else {
+                setMarkdown(prev => prev.trimEnd() + '\n\n' + formula);
+              }
+              setFormulaState('idle');
+              setShowFormulaModal(false);
+              setFormulaInput('');
+              return;
+            } catch(e) { console.warn('[FormulaGen]', model, e.message); }
+          }
+        }
+        setFormulaState('error');
+        setFormulaError('所有 API Key 均失败，请稍后再试');
+      };
+      const katexErrors = React.useMemo(() => {
+        const issues = [];
+        const tmp = document.createElement('div');
+        tmp.innerHTML = previewHtml;
+        // 1. KaTeX red error nodes (actual render failures)
+        tmp.querySelectorAll('.katex-error').forEach(el => {
+          const t = el.textContent?.trim();
+          if (t) issues.push('⚠ ' + t.slice(0, 60) + (t.length > 60 ? '…' : ''));
+        });
+        // 2. Raw LaTeX in plain text — but exclude math/annotation nodes
+        // (KaTeX embeds original source in <annotation> which shows up in textContent)
+        tmp.querySelectorAll('math, .katex, script, style').forEach(el => el.remove());
+        const text = tmp.textContent || '';
+        const matches = text.match(/\\[a-zA-Z]{2,}[^\s]*/g) || [];
+        matches.slice(0, 5).forEach(m => {
+          const s = m.trim().slice(0, 60);
+          if (!issues.find(i => i.includes(s))) issues.push('✎ ' + s);
+        });
+        return issues;
+      }, [previewHtml]);
+      const hasKatexError = katexErrors.length > 0;
+
+      React.useEffect(() => {
+        const t = setTimeout(() => setPreviewHtml(processMarkdown(markdown, false)), 300);
+        return () => clearTimeout(t);
+      }, [markdown]);
+
+      React.useEffect(() => {
+        if (ocrState !== 'loading') return;
+        const ticker = setInterval(() => {
+          setOcrElapsed(Math.round((Date.now() - ocrStartRef.current) / 1000));
+        }, 1000);
+        return () => clearInterval(ticker);
+      }, [ocrState]);
+
+      // ── Ctrl+V paste image ──────────────────────────────────────────────────
+      React.useEffect(() => {
+        const handlePaste = (e) => {
+          const items = e.clipboardData?.items;
+          if (!items) return;
+          // Collect all items as array, prioritise raster images over metafiles
+          const arr = Array.from(items);
+          // Preferred: png/jpeg/gif/webp (raster)
+          let imgItem = arr.find(it => /^image\/(png|jpeg|jpg|gif|webp)/i.test(it.type));
+          // Fallback: any image/* (includes emf/wmf from Word)
+          if (!imgItem) imgItem = arr.find(it => it.type.startsWith('image/'));
+          if (imgItem) {
+            e.preventDefault();
+            const file = imgItem.getAsFile();
+            if (file) processImageFile(file);
+          }
+        };
+        window.addEventListener('paste', handlePaste);
+        return () => window.removeEventListener('paste', handlePaste);
+      }, [apiKeys]); // re-register when keys change
+
+      const handleExport = () => exportToWord(processMarkdown(markdown, true), 'Converted_Document.doc');
+      const handleCopy = async () => {
+        const ok = await copyForWord(processMarkdown(markdown, true));
+        setCopyState(ok ? 'success' : 'error');
+        setTimeout(() => setCopyState('idle'), 2500);
+      };
+
+      const handleFixEquations = async () => {
+        const allKeys = [...new Set([..._loadPresetKeys(), ...apiKeys])];
+        if (!allKeys.length) { alert('请先设置 API Key'); return; }
+        setFixState('loading');
+        const prompt = '你是 LaTeX 专家。以下是从图片 OCR 识别出来的 Markdown 文本，其中部分数学公式有错误（符号缺失、分隔符错误、格式混乱等）。请修正所有错误的 LaTeX 公式，保持其他文字内容完全不变，只返回修正后的完整 Markdown，不要任何解释。\n\n---\n\n' + markdown;
+        for (const model of GEMINI_MODELS) {
+          for (const key of allKeys) {
+            try {
+              const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
+              const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+              });
+              const data = await res.json();
+              if (data.error) throw new Error(data.error.message);
+              const fixed = data.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (fixed) {
+                setMarkdown(fixed.replace(/^```(markdown)?\n?/, '').replace(/\n?```$/, '').trim());
+                setFixState('done');
+                setTimeout(() => setFixState('idle'), 3000);
+                return;
+              }
+            } catch(e) { console.warn('[Fix]', model, e.message); }
+          }
+        }
+        setFixState('idle');
+        alert('修正失败，请稍后再试');
+      };
+
+      const handleAddKey = () => {
+        const k = newKeyInput.trim();
+        if (!k || apiKeys.includes(k)) { setNewKeyInput(''); return; }
+        const updated = [k, ...apiKeys];
+        setApiKeys(updated); saveKeys(updated);
+        setNewKeyInput('');
+      };
+      const handleRemoveKey = (k) => {
+        const updated = apiKeys.filter(x => x !== k);
+        setApiKeys(updated); saveKeys(updated);
+      };
+      const handleResetKeys = () => {
+        setApiKeys(PRESET_KEYS); saveKeys([]);
+      };
+
+      // Central image processing function (used by both file input and paste)
+      const processImageFile = async (file) => {
+        if (!file.type.startsWith('image/')) return;
+        setPreviewImg(URL.createObjectURL(file));
+        setOcrState('loading'); setOcrError('');
+        ocrStartRef.current = Date.now();
+        setOcrElapsed(0);
+        setOcrProgress({ msg: '准备中…', pct: 0 });
+        try {
+          const onProg = (msg, pct) => setOcrProgress({ msg, pct: Math.round((pct||0)*100) });
+          // Decode preset keys only at the moment of OCR, merge with user keys
+          const allKeys = [...new Set([..._loadPresetKeys(), ...apiKeys])];
+          let result;
+          if (allKeys.length > 0) {
+            try {
+              result = await extractWithGemini(file, allKeys, onProg, keyTimeout);
+            } catch (err) {
+              if (!err.allFailed) throw err;
+              onProg('所有 Key 已用尽，切换本地识别…', 0.02);
+              result = await extractWithTesseract(file, onProg);
+            }
+          } else {
+            result = await extractWithTesseract(file, onProg);
+          }
+          setMarkdown(prev => prev.trim() ? prev.trimEnd() + '\n\n---\n\n' + result : result);
+          setOcrElapsed(Math.round((Date.now() - ocrStartRef.current) / 1000));
+          setOcrState('idle');
+        } catch (err) {
+          setOcrError(err.message || '识别失败，请重试');
+          setOcrState('error');
+          setTimeout(() => { setOcrState('idle'); setOcrError(''); }, 7000);
+        }
+      };
+
+      const handleFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (file) { e.target.value = ''; processImageFile(file); }
+      };
+
+      const maskKey = k => k.slice(0, 8) + '••••••••' + k.slice(-4);
+
+      return (
+        <div className="min-h-screen bg-slate-50 flex flex-col" style={{fontFamily:'system-ui,sans-serif'}}>
+          <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+
+          {/* ── API Key Modal ── */}
+          {showKeyModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-slate-800">设置 API Key</h2>
+                  <button onClick={()=>setShowKeyModal(false)} className="text-slate-400 hover:text-slate-600 p-1"><XIcon/></button>
+                </div>
+
+                {/* Existing keys */}
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">当前 Key 列表（{apiKeys.length} 个）</p>
+                <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 mb-4 max-h-48 overflow-y-auto">
+                  {apiKeys.length === 0 && (
+                    <p className="text-xs text-slate-400 text-center py-4">暂无 Key，识别将使用本地 Tesseract</p>
+                  )}
+                  {apiKeys.map((k, i) => (
+                    <div key={k} className="flex items-center justify-between px-3 py-2 text-xs">
+                      <span className="font-mono text-slate-600 flex-1 truncate">
+                        <span className="text-slate-400 mr-2">#{i+1}</span>{maskKey(k)}
+                        {PRESET_KEYS.includes(k) && <span className="ml-2 text-indigo-400">[内置]</span>}
+                      </span>
+                      <button onClick={()=>handleRemoveKey(k)} className="ml-3 text-slate-300 hover:text-red-400 flex-shrink-0" title="移除">×</button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add key */}
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">添加新 Key</p>
+                <div className="flex gap-2 mb-3">
+                  <input type="password" value={newKeyInput} onChange={e=>setNewKeyInput(e.target.value)}
+                    onKeyDown={e=>e.key==='Enter'&&handleAddKey()}
+                    placeholder="AIzaSy..."
+                    className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400"/>
+                  <button onClick={handleAddKey} disabled={!newKeyInput.trim()}
+                    className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                    添加
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-500 mb-4">
+                  识别时自动轮询所有 Key × 所有模型，全部失败才切换本地识别。
+                </div>
+
+                {/* Timeout setting */}
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">跳过 Key 时间</p>
+                <div className="flex items-center gap-3 mb-4">
+                  <input type="range" min="5" max="100" step="5" value={keyTimeout}
+                    onChange={e => { const v=parseInt(e.target.value); setKeyTimeout(v); localStorage.setItem('key_timeout', v); }}
+                    className="flex-1 accent-indigo-600"/>
+                  <span className="text-sm font-mono font-medium text-slate-700 w-12 text-right">{keyTimeout}s</span>
+                </div>
+
+                {/* OCR Mode toggle */}
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">识别模式</p>
+                <div className="flex gap-2 mb-4">
+                  <button onClick={()=>{ setOcrMode('accurate'); localStorage.setItem('ocr_mode','accurate'); }}
+                    className={'flex-1 py-2 rounded-lg text-xs font-medium border transition-all ' + (ocrMode==='accurate' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300')}>
+                    🎯 精准（默认）
+                    <div className={'text-xs mt-0.5 font-normal ' + (ocrMode==='accurate' ? 'text-indigo-200' : 'text-slate-400')}>Gemini 3 Flash 优先</div>
+                  </button>
+                  <button onClick={()=>{ setOcrMode('fast'); localStorage.setItem('ocr_mode','fast'); }}
+                    className={'flex-1 py-2 rounded-lg text-xs font-medium border transition-all ' + (ocrMode==='fast' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300')}>
+                    ⚡ 快速
+                    <div className={'text-xs mt-0.5 font-normal ' + (ocrMode==='fast' ? 'text-indigo-200' : 'text-slate-400')}>Gemini 2.5 Flash 优先</div>
+                  </button>
+                </div>
+
+                <div className="flex gap-2">
+                  <div className="flex-1"/>
+                  <button onClick={()=>setShowKeyModal(false)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg text-sm font-medium">完成</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Formula Generator Modal ── */}
+          {showFormulaModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={e=>{if(e.target===e.currentTarget){setShowFormulaModal(false);setFormulaError('');}}}>
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="bg-violet-100 text-violet-600 rounded-lg p-1.5">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                    </div>
+                    <h2 className="text-base font-semibold text-slate-800">AI 生成公式</h2>
+                  </div>
+                  <button onClick={()=>{setShowFormulaModal(false);setFormulaError('');}} className="text-slate-400 hover:text-slate-600 p-1"><XIcon/></button>
+                </div>
+                <p className="text-xs text-slate-500 mb-3">用中文描述你要的公式，AI 只返回 LaTeX，直接插入编辑器。</p>
+                <textarea
+                  ref={formulaInputRef}
+                  value={formulaInput}
+                  onChange={e=>setFormulaInput(e.target.value)}
+                  onKeyDown={e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey))handleGenerateFormula();}}
+                  placeholder="例如：二次方程求根公式、麦克斯韦方程组、矩阵行列式展开…"
+                  rows={3}
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400 resize-none mb-3"
+                  autoFocus
+                />
+                {formulaError && (
+                  <p className="text-xs text-red-500 mb-3 flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    {formulaError}
+                  </p>
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400">Ctrl+Enter 快速生成</span>
+                  <div className="flex gap-2">
+                    <button onClick={()=>{setShowFormulaModal(false);setFormulaError('');}} className="px-4 py-2 rounded-lg text-sm text-slate-500 hover:bg-slate-100 border border-slate-200">取消</button>
+                    <button onClick={handleGenerateFormula} disabled={formulaState==='loading'||!formulaInput.trim()}
+                      className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                      {formulaState==='loading'?<SpinnerIcon/>:
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>}
+                      <span>{formulaState==='loading'?'生成中…':'生成公式'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Header ── */}
+          <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600"><FileCode2Icon/></div>
+              <div>
+                <h1 className="text-xl font-semibold text-slate-800">AI 转 Word 转换器</h1>
+                <p className="text-sm text-slate-500">南华独中 · Markdown &amp; LaTeX 转原生 Word 格式</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button onClick={handleCopy} className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all shadow-sm border ${copyState==='success'?'bg-green-50 border-green-300 text-green-700':copyState==='error'?'bg-red-50 border-red-300 text-red-700':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}>
+                {copyState==='success'?<CheckIcon/>:<CopyIcon/>}
+                <span>{copyState==='success'?'已复制！':copyState==='error'?'复制失败':'复制到 Word'}</span>
+              </button>
+              <button onClick={handleExport} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-medium shadow-sm">
+                <DownloadIcon/><span>导出为 Word</span>
+              </button>
+            </div>
+          </header>
+
+          {/* ── Tip Banner ── */}
+          <div className="bg-indigo-50 border-b border-indigo-100 px-6 py-2 flex items-center gap-2 text-xs text-indigo-600">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span>粘贴 AI 输出后点「<strong>复制到 Word</strong>」→ 在 Word 按 <kbd className="bg-indigo-100 px-1 rounded font-mono">Ctrl+V</kbd>。截图可直接 <kbd className="bg-indigo-100 px-1 rounded font-mono">Ctrl+V</kbd> 粘贴识别，或点按钮上传。</span>
+          </div>
+
+          {/* ── Main ── */}
+          <main className="flex-1 flex flex-col md:flex-row overflow-hidden p-4 gap-4" style={{minHeight:'calc(100vh - 110px)'}}>
+
+            {/* Editor */}
+            <section className="flex-1 flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden" style={{minHeight:'400px'}}>
+
+              {/* Toolbar */}
+              <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center justify-between gap-2 text-sm font-medium text-slate-600">
+                <div className="flex items-center gap-2"><SplitIcon/><span>Markdown 输入</span></div>
+                <div className="flex items-center gap-2">
+                  {/* Formula Generator button */}
+                  <button onClick={()=>setShowFormulaModal(true)}
+                    className="flex items-center gap-1 text-xs px-2 py-1 rounded-md border transition-colors bg-violet-50 border-violet-200 text-violet-700 hover:bg-violet-100">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    <span>AI 生成公式</span>
+                  </button>
+
+                  {/* API Key button */}
+                  <button onClick={()=>setShowKeyModal(true)}
+                    className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md border transition-colors ${hasKeys?'bg-green-50 border-green-200 text-green-700 hover:bg-green-100':'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'}`}>
+                    <KeyIcon/>
+                    <span>{hasKeys ? `API Key (${apiKeys.length})` : '设置 API Key'}</span>
+                  </button>
+
+                  {/* Upload button */}
+                  <button onClick={()=>fileInputRef.current?.click()} disabled={ocrState==='loading'}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${ocrState==='loading'?'bg-amber-50 border-amber-200 text-amber-600 cursor-not-allowed':ocrState==='error'?'bg-red-50 border-red-200 text-red-600':'bg-white border-slate-200 text-slate-600 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-600'}`}>
+                    {ocrState==='loading'?<SpinnerIcon/>:<ImageIcon/>}
+                    <span>{ocrState==='loading'?'识别中…':ocrState==='error'?'识别失败':'上传 / Ctrl+V'}</span>
+                  </button>
+                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange}/>
+                </div>
+              </div>
+
+              {/* Error */}
+              {ocrState==='error'&&ocrError&&(
+                <div className="bg-red-50 border-b border-red-100 px-4 py-2 text-xs text-red-600 flex items-center justify-between">
+                  <span>⚠️ {ocrError}</span>
+                  <button onClick={()=>setOcrState('idle')} className="ml-2 text-red-400 hover:text-red-600"><XIcon/></button>
+                </div>
+              )}
+
+              {/* Loading progress */}
+              {ocrState==='loading'&&previewImg&&(
+                <div className="border-b border-amber-100 px-4 py-3 bg-amber-50">
+                  <div className="flex items-center gap-3 mb-2">
+                    <img src={previewImg} alt="" className="h-10 w-14 object-cover rounded border border-amber-200 opacity-80 flex-shrink-0"/>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-amber-700 truncate">{ocrProgress.msg}</p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-amber-500 mt-0.5">{hasKeys?`自动轮询 ${apiKeys.length} 个 Key × ${GEMINI_MODELS.length} 个模型`:'Tesseract 本地识别中'}</p>
+                        <p className="text-xs text-amber-600 font-mono font-medium mt-0.5">{ocrElapsed}s</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="w-full bg-amber-100 rounded-full h-1.5">
+                    <div className="bg-amber-400 h-1.5 rounded-full transition-all duration-300" style={{width:`${ocrProgress.pct}%`}}/>
+                  </div>
+                </div>
+              )}
+
+              {/* Done */}
+              {previewImg&&ocrState==='idle'&&(
+                <div className="border-b border-slate-100 px-4 py-2 flex items-center gap-3 bg-slate-50">
+                  <img src={previewImg} alt="" className="h-10 w-14 object-cover rounded border border-slate-200"/>
+                  <div className="flex-1">
+                    <p className="text-xs text-slate-600 font-medium">识别完成 ✓ <span className="text-slate-400 font-normal">用时 {ocrElapsed}s</span></p>
+                    <p className="text-xs text-slate-400">{window._lastGeminiInfo ? `${window._lastGeminiInfo} 识别成功` : 'Tesseract 本地识别完成'}</p>
+                  </div>
+                  <button onClick={()=>{setPreviewImg(null);window._lastGeminiInfo=null;}} className="text-slate-300 hover:text-slate-500"><XIcon/></button>
+                </div>
+              )}
+
+              <textarea ref={textareaRef} value={markdown} onChange={e=>setMarkdown(e.target.value)}
+                className="flex-1 w-full p-6 resize-none outline-none text-slate-700 text-sm leading-relaxed"
+                placeholder="在此粘贴 ChatGPT / Gemini 输出内容，或 Ctrl+V 粘贴截图自动识别…"
+                spellCheck={false} style={{fontFamily:'monospace',minHeight:'350px'}}/>
+            </section>
+
+            {/* Preview */}
+            <section className="flex-1 flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden" style={{minHeight:'400px'}}>
+              <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center justify-between gap-2 text-sm font-medium text-slate-600">
+                <div className="flex items-center gap-2"><FileTextIcon/><span>实时预览</span></div>
+                {hasKatexError && (
+                  <div className="relative group">
+                    <button onClick={handleFixEquations} disabled={fixState==='loading'}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${fixState==='loading'?'bg-amber-50 border-amber-200 text-amber-600 cursor-not-allowed':fixState==='done'?'bg-green-50 border-green-200 text-green-700':'bg-red-50 border-red-200 text-red-600 hover:bg-red-100'}`}>
+                      {fixState==='loading'?<SpinnerIcon/>:fixState==='done'?<CheckIcon/>:<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>}
+                      <span>{fixState==='loading'?'修正中…':fixState==='done'?'修正完成！':'✦ 修正公式'}</span>
+                      {fixState==='idle' && <span className="ml-1 bg-red-200 text-red-700 rounded-full w-4 h-4 flex items-center justify-center font-bold" style={{fontSize:'10px'}}>{katexErrors.length}</span>}
+                    </button>
+                    {fixState==='idle' && (
+                      <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block w-72 bg-slate-800 text-white rounded-lg shadow-xl p-3 text-xs">
+                        <p className="font-semibold text-slate-300 mb-2">检测到 {katexErrors.length} 处公式问题：</p>
+                        <ul className="space-y-1">
+                          {katexErrors.map((e,i) => (
+                            <li key={i} className="font-mono text-red-300 truncate">{e}</li>
+                          ))}
+                        </ul>
+                        <p className="mt-2 text-slate-400">点击按钮用 Gemini 自动修正</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 overflow-y-auto p-8 prose prose-slate max-w-none" dangerouslySetInnerHTML={{__html:previewHtml}}/>
+            </section>
+          </main>
+
+          <footer className="text-center py-3 text-xs text-slate-400 border-t border-slate-200 bg-white">
+            南华独中 · AI 转 Word 转换工具 &nbsp;·&nbsp; 最后更新：2026年2月26日
+          </footer>
+        </div>
+      );
+    }
+
+
+    // ─── Mount ────────────────────────────────────────────────────────────────
+    ReactDOM.createRoot(document.getElementById('root')).render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>
+    );
+  </script>
+</body>
+</html>
